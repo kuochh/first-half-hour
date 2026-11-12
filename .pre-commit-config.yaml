@@ -1,0 +1,46 @@
+# Publishing guard. Installed for both hooks:
+#   uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+# Only paths matching ALLOWED may be committed, and no file may hold the vendor's minute bars.
+# The history hook applies both rules to every commit, so nothing deleted later slips out with
+# the history. CI runs all of them, plus a planted-file check.
+repos:
+  - repo: local
+    hooks:
+      - id: allowlist
+        name: only listed paths are published
+        entry: "This path is not on the list of files this repository publishes."
+        language: fail
+        exclude: &allowed '^(README\.md|LICENSE|pyproject\.toml|uv\.lock|\.python-version|\.gitignore|\.pre-commit-config\.yaml|Dockerfile|\.dockerignore|data/README\.md|\.github/workflows/[a-z0-9_-]+\.yml|src/first_half_hour/[a-z0-9_/]+\.py|tests/[a-z0-9_/]+\.py|scripts/[a-z0-9_]+\.py|results/[a-z0-9_-]+\.(csv|json|md|png|svg)|report/[a-z0-9_/-]+\.(md|qmd|bib|png|svg)|webapp/[a-z0-9_/-]+\.(py|toml|md|png|svg|css))$'
+      - id: no-vendor-bars
+        name: no file holds the vendor's minute bars
+        entry: &vendor_header '^timestamp,open,high,low,close,volume'
+        language: pygrep
+      - id: history
+        name: every commit in the history passes both rules
+        entry: >-
+          bash -c 'bad=$(git log --all --format= --name-only | sort -u | grep -v "^$" | grep -vE "$0");
+          bars=$(git log --all --format=%h -G "$1");
+          [ -z "$bad$bars" ] && exit 0;
+          echo "paths not on the list:"; echo "$bad"; echo "commits holding vendor bars: $bars"; exit 1'
+        args: [*allowed, *vendor_header]
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

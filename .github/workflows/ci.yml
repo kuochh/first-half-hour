@@ -1,0 +1,43 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the whole history: a file deleted later is still published
+      - uses: astral-sh/setup-uv@v5
+      - name: publishing guard over every tracked file
+        run: uvx pre-commit@4.7.0 run --all-files
+      - name: publishing guard over every commit
+        run: uvx pre-commit@4.7.0 run history --hook-stage pre-push
+      - name: secrets anywhere in the history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: the guard must catch planted files
+        # Each planted file must fail with its own hook's message; a command that cannot run at
+        # all must not count as caught.
+        run: |
+          set -u
+          plant() {  # hook, expected message, file...
+            hook=$1; msg=$2; shift 2
+            if uvx pre-commit@4.7.0 run "$hook" --files "$@" > hook.log 2>&1; then
+              cat hook.log; echo "$hook did not fail on $*"; exit 1
+            fi
+            grep -q "$msg" hook.log || { cat hook.log; echo "$hook failed for another reason"; exit 1; }
+          }
+          mkdir -p notes misc results
+          echo planted > notes/x.md; echo "a,b" > misc/x.csv; echo planted > X.md
+          printf 'timestamp,open,high,low,close,volume\n2019-11-01 09:30:00,1,1,1,1,1\n' > results/bars.csv
+          git add -f notes/x.md misc/x.csv X.md results/bars.csv
+          plant allowlist "not on the list" notes/x.md misc/x.csv X.md
+          plant no-vendor-bars "results/bars.csv" results/bars.csv
+          git -c user.name=ci -c user.email=ci@example.invalid commit -q -m planted
+          if uvx pre-commit@4.7.0 run history --hook-stage pre-push > hist.log 2>&1; then
+            cat hist.log; echo "the history check missed a planted commit"; exit 1
+          fi
+          grep -q "notes/x.md" hist.log || { cat hist.log; exit 1; }
+          echo "guard caught every planted file"

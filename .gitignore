@@ -1,0 +1,28 @@
+# Only the files this repository publishes are tracked; everything else stays local.
+/*
+!/README.md
+!/LICENSE
+!/pyproject.toml
+!/uv.lock
+!/.python-version
+!/.gitignore
+!/.pre-commit-config.yaml
+!/Dockerfile
+!/.dockerignore
+!/.github/
+!/src/
+!/tests/
+!/scripts/
+!/results/
+!/report/
+!/webapp/
+!/data/
+/data/*
+!/data/README.md
+
+# Build and OS noise inside the published folders
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+._*
