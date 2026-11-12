@@ -1,0 +1,47 @@
+[project]
+name = "first-half-hour"
+version = "0.1.0"
+description = "Does the first half-hour of trading still tell us how the day ends? A replication of Gao, Han, Li and Zhou (2018) and an ML-versus-volatility comparison on SPY minute bars."
+authors = [
+    { name = "Kuo Chia-Hung", email = "79375430+kuochh@users.noreply.github.com" }
+]
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "arch>=9.0.0",
+    "exchange-calendars>=4.13.2",
+    "matplotlib>=3.11.2",
+    "mlflow>=3.18.0",
+    "numpy>=2.5.4",
+    "plotly>=7.1.0",
+    "polars>=2.1.0",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "statsmodels>=0.15.0",
+    "streamlit>=1.67.0",
+]
+
+[project.scripts]
+fhh = "first_half_hour.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/first_half_hour"]

@@ -41,3 +41,13 @@ jobs:
           fi
           grep -q "notes/x.md" hist.log || { cat hist.log; exit 1; }
           echo "guard caught every planted file"
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run pytest
