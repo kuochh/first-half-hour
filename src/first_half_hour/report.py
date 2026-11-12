@@ -21,10 +21,12 @@ CSS = """
 body{font:15px/1.55 -apple-system,Helvetica,Arial,'PingFang TC','Noto Sans TC',sans-serif;
 max-width:1100px;margin:20px auto;padding:0 14px;color:#222}
 h1{font-size:1.5em}h2{margin-top:2em;border-bottom:1px solid #ddd;font-size:1.2em}
-.t{overflow-x:auto}table{border-collapse:collapse;font-size:13px}
+.t{overflow-x:auto;max-width:100%}table{border-collapse:collapse;font-size:13px}
 td,th{border:1px solid #ddd;padding:3px 7px;text-align:right;white-space:nowrap}
 th{background:#f4f4f4}.box{background:#f7f9fc;border:1px solid #dde5f0;padding:8px 16px;
 border-radius:6px}.warn{color:#8a4b00}img{max-width:100%;height:auto}
+.wrap{white-space:normal;min-width:16em;text-align:left}
+th.g{text-align:center}
 """
 
 REG = [
@@ -42,7 +44,7 @@ REG = [
 ]
 
 # Columns whose cells are code labels; the Chinese page maps them through LABELS_ZH.
-LABEL_COLS = ("sample", "variant", "spec", "term", "se_kind", "rule", "group", "note")
+LABEL_COLS = ("sample", "variant", "spec", "term", "se_kind", "rule", "group", "note", "unit")
 
 HEADERS_ZH = {
     "sample": "樣本",
@@ -51,17 +53,18 @@ HEADERS_ZH = {
     "term": "變數",
     "coef": "係數",
     "baseline_coef": "基準係數",
+    "unit": "單位",
     "t": "t 值",
     "se_kind": "標準誤算法",
     "p": "p 值",
-    "r2": "R²",
-    "baseline_r2": "基準 R²",
+    "r2": "R²（%）",
+    "baseline_r2": "基準 R²（%）",
     "T": "交易日數 T",
     "n_dropped": "剔除列數",
     "chi2": "卡方值",
     "n_forecasts": "預測筆數",
-    "r2_os_vs_mean": "R²_OS（對比擴張平均）",
-    "r2_os_vs_zero": "R²_OS（對比零預測）",
+    "r2_os_vs_mean": "R²_OS（對比擴張平均，%）",
+    "r2_os_vs_zero": "R²_OS（對比零預測，%）",
     "cw_t_vs_mean": "Clark-West t（對比平均）",
     "cw_p_vs_mean": "Clark-West p（對比平均）",
     "cw_t_vs_zero": "Clark-West t（對比零）",
@@ -94,9 +97,9 @@ LABELS_ZH = {
         "FULL": "2011–26（全期）",
     },
     "variant": {
-        "r13~r1": "r13 ~ r1（最後半小時 ~ 第一個半小時）",
-        "r13~r12": "r13 ~ r12（最後半小時 ~ 倒數第二個半小時）",
-        "r13~r1+r12": "r13 ~ r1+r12（最後半小時 ~ 第一個半小時 + 倒數第二個半小時）",
+        "r13~r1": "最後半小時 ~ 第一個半小時",
+        "r13~r12": "最後半小時 ~ 倒數第二個半小時",
+        "r13~r1+r12": "最後半小時 ~ 第一個半小時 + 倒數第二個半小時",
         "huber": "Huber 穩健迴歸（降低極端值的權重）",
         "median": "中位數迴歸",
         "trim_top_1%": "去掉最極端 1%",
@@ -105,61 +108,61 @@ LABELS_ZH = {
         "log_returns": "改用對數報酬",
         "no_half_days": "排除半天交易日",
         "no_ex_dividend": "排除除息日（也就是季度到期日）",
-        "r13~r_on+r_fh": "r13 ~ r_on+r_fh（最後半小時 ~ 隔夜 + 開盤半小時）",
-        "r13~rod": "r13 ~ rod（最後半小時 ~ 前收到 15:30）",
-        "r13~r1+rod": "r13 ~ r1+rod（最後半小時 ~ 第一個半小時 + 前收到 15:30）",
-        "+cpi": "+cpi（加入 CPI 公布日）",
-        "+daily_expiry_era": "+daily_expiry_era（加入每日到期期權時期）",
-        "+fomc": "+fomc（加入聯準會利率決策日）",
-        "+is_half_day": "+is_half_day（加入半天交易日）",
-        "+month_end": "+month_end（加入月底）",
-        "+opex_monthly": "+opex_monthly（加入每月期權到期日）",
-        "+opex_quarterly": "+opex_quarterly（加入季度期權到期日）",
-        "+payroll": "+payroll（加入非農就業公布日）",
-        "+relvol": "+relvol（加入第一個半小時的相對成交量）",
-        "+rv_day_lag": "+rv_day_lag（加入前一日的波動）",
-        "+rv_fh": "+rv_fh（加入第一個半小時的波動）",
-        "+vix_lag": "+vix_lag（加入前一日的 VIX）",
-        "+vix_ratio_lag": "+vix_ratio_lag（加入前一日 VIX 對三個月 VIX 的比值）",
-        "+weekday": "+weekday（加入星期幾）",
-        "all": "all（全部控制變數一起加）",
-        "base_same_rows": "base_same_rows（基準：同樣的資料列、不加控制）",
-        "r1_x_news": "r1 × 重大消息日",
-        "r1_x_top_relvol": "r1 × 相對成交量最高三分位",
-        "r1_x_top_rv_fh": "r1 × 第一個半小時波動最高三分位",
+        "r13~r_on+r_fh": "最後半小時 ~ 隔夜 + 開盤半小時",
+        "r13~rod": "最後半小時 ~ 前收到 15:30",
+        "r13~r1+rod": "最後半小時 ~ 第一個半小時 + 前收到 15:30",
+        "+cpi": "加入 CPI 公布日",
+        "+daily_expiry_era": "加入每日到期期權時期",
+        "+fomc": "加入聯準會利率決策日",
+        "+is_half_day": "加入半天交易日",
+        "+month_end": "加入月底",
+        "+opex_monthly": "加入每月期權到期日",
+        "+opex_quarterly": "加入季度期權到期日",
+        "+payroll": "加入非農就業公布日",
+        "+relvol": "加入第一個半小時的相對成交量",
+        "+rv_day_lag": "加入前一日的波動",
+        "+rv_fh": "加入第一個半小時的波動",
+        "+vix_lag": "加入前一日的 VIX",
+        "+vix_ratio_lag": "加入前一日 VIX 對三個月 VIX 的比值",
+        "+weekday": "加入星期幾",
+        "all": "全部控制變數一起加",
+        "base_same_rows": "同一批交易日、不加控制變數的斜率",
+        "r1_x_news": "第一個半小時報酬 × 重大消息日",
+        "r1_x_top_relvol": "第一個半小時報酬 × 相對成交量最高三分位",
+        "r1_x_top_rv_fh": "第一個半小時報酬 × 第一個半小時波動最高三分位",
     },
     "term": {
-        "r1": "r1（第一個半小時報酬）",
-        "r12": "r12（倒數第二個半小時報酬）",
-        "lr1": "lr1（第一個半小時對數報酬）",
-        "r_on": "r_on（隔夜報酬）",
-        "r_fh": "r_fh（開盤第一個半小時報酬）",
-        "rod": "rod（前收到 15:30 的報酬）",
-        "D": "D（斷點後的截距變化）",
-        "D*r1": "D×r1（斷點後的斜率變化）",
-        "D+D*r1": "D 與 D×r1 一起（聯合 Wald 檢定）",
+        "r1": "第一個半小時報酬",
+        "r12": "倒數第二個半小時報酬",
+        "lr1": "第一個半小時對數報酬",
+        "r_on": "隔夜報酬",
+        "r_fh": "開盤半小時報酬",
+        "rod": "前收到 15:30 的報酬",
+        "D": "斷點後的截距變化",
+        "D*r1": "斷點後的斜率變化",
+        "D+D*r1": "截距與斜率一起（聯合 Wald 檢定）",
         "const": "常數項",
-        "cpi": "cpi（CPI 公布日）",
-        "daily_expiry_era": "daily_expiry_era（每日到期期權時期）",
+        "cpi": "CPI 公布日",
+        "daily_expiry_era": "每日到期期權時期",
         "dow_tue": "星期二",
         "dow_wed": "星期三",
         "dow_thu": "星期四",
         "dow_fri": "星期五",
-        "fomc": "fomc（聯準會利率決策日）",
-        "inter": "交互項（r1 × 該條件）",
-        "is_half_day": "is_half_day（半天交易日）",
-        "month_end": "month_end（月底）",
-        "news": "news（重大消息日）",
-        "opex_monthly": "opex_monthly（每月期權到期日）",
-        "opex_quarterly": "opex_quarterly（季度期權到期日）",
-        "payroll": "payroll（非農就業公布日）",
-        "relvol": "relvol（相對成交量）",
-        "relvol_top": "relvol_top（相對成交量最高三分位）",
-        "rv_day_lag": "rv_day_lag（前一日波動）",
-        "rv_fh": "rv_fh（第一個半小時波動）",
-        "rv_fh_top": "rv_fh_top（第一個半小時波動最高三分位）",
-        "vix_lag": "vix_lag（前一日 VIX）",
-        "vix_ratio_lag": "vix_ratio_lag（前一日 VIX 對三個月 VIX 的比值）",
+        "fomc": "聯準會利率決策日",
+        "inter": "交互項（第一個半小時報酬 × 該條件）",
+        "is_half_day": "半天交易日",
+        "month_end": "月底",
+        "news": "重大消息日",
+        "opex_monthly": "每月期權到期日",
+        "opex_quarterly": "季度期權到期日",
+        "payroll": "非農就業公布日",
+        "relvol": "相對成交量",
+        "relvol_top": "相對成交量最高三分位",
+        "rv_day_lag": "前一日波動",
+        "rv_fh": "第一個半小時波動",
+        "rv_fh_top": "第一個半小時波動最高三分位",
+        "vix_lag": "前一日 VIX",
+        "vix_ratio_lag": "前一日 VIX 對三個月 VIX 的比值",
     },
     "se_kind": {
         "nw": "Newey-West",
@@ -175,6 +178,7 @@ LABELS_ZH = {
         "zero": "不交易（零）",
     },
     "group": {"equity": "股票型", "non_equity": "非股票型"},
+    "unit": {"bp": "bp", "slope": "斜率"},
     "note": {
         "no break-even: gross mean <= 0": "沒有損益兩平點：未扣成本的平均報酬 ≤ 0",
         "Sharpe difference, paired bootstrap CI; the skill comparison. "
@@ -248,10 +252,12 @@ TEXT = {
         ),
         "t5": "Out-of-sample forecasts",
         "x5": (
-            "Forecasts are made one session at a time from earlier data only. R2_OS compares the "
+            "Monthly refit: the model is re-estimated once a month on all data up to the end of "
+            "the previous month, and that month's coefficients forecast every trading day of the "
+            "month, so no forecast uses data from its own month or later. R2_OS compares the "
             "squared error with an expanding-mean forecast and with a zero forecast; positive "
             "means better than that baseline, and the no-skill value is 0. Clark-West p tests "
-            "the same comparison."
+            "the same comparison. R2_OS is in percent."
         ),
         "t6": "Decomposition of the signal",
         "x6": (
@@ -263,22 +269,37 @@ TEXT = {
         "x7": (
             "The r1 slope again after adding one control at a time, then all together; every "
             "control uses only information available by 10:00. Compare each r1 coef with "
-            "base_same_rows (the baseline slope on the identical rows). Second table: the "
-            "control coefficients in the all-controls regression."
+            "base_same_rows (the baseline slope on the identical rows). One table per sample; "
+            "t uses the standard error named in se_kind and T is the number of sessions. Second "
+            "set of tables: the control coefficients in the all-controls regression, in basis "
+            "points (bp, 0.01%) of last-half-hour return per one unit of the control (0 to 1 "
+            "for yes/no controls)."
         ),
         "cap7": "<p>Control coefficients, all-controls regression:</p>",
+        "cap8": (
+            "<p>t of single-ETF rows: {one}; t of pooled rows: {pool}. DK t is the "
+            "Driscoll-Kraay t, pooled rows only. Days = sessions used. Holm p is corrected for "
+            "the number of ETFs tested.</p>"
+        ),
+        "pooled": "POOLED",
+        "hd_slope": "slope",
+        "hd_holm": "Holm p",
+        "hd_days": "days",
+        "hd_dk": "DK t",
+        "hd_etf": "ETF",
         "t8": "ETF panel",
         "x8": (
-            "The same slope for other ETFs, one by one and pooled by group. p_holm is the "
-            "p-value corrected for the number of ETFs tested; t_dk is the Driscoll-Kraay t for "
-            "pooled rows. Baseline: slope 0, R2 0."
+            "The same slope for other ETFs, one row per ETF and one pooled row per group, with "
+            "the three samples side by side. Baseline: slope 0."
         ),
         "t9": "Timing rules",
         "x9": (
             "Trade the last half-hour in the direction of the first half-hour, net of cost, "
             "against two baselines: always long (sharpe_always_long) and not trading at all "
-            "(Sharpe 0, the zero rule). Only costs of 0 and 1 bp per side are shown here; "
-            "the others are in the item 9 table. Sharpe intervals are bootstrap intervals."
+            "(Sharpe 0, the zero rule). All five costs (0, 0.5, 1, 2 and 5 bp per side) are shown for each rule, "
+            "2014-26 first. break_even_bp is the per-side cost at which the rule's mean return "
+            "reaches zero; it is blank, with a note, when the gross mean is already not "
+            "positive. Sharpe intervals are bootstrap intervals."
         ),
     },
     "zh": {
@@ -302,7 +323,7 @@ TEXT = {
             "基準：斜率 0、R² 0。</li>\n"
             "<li><b>H2</b>（同一個斜率，2014–2026 年）：斜率 {h2_slope:.4g}，t 值 {h2_t:.3g}，"
             "p 值 {h2_p:.3g}，R² {h2_r2:.3g}，交易日數 T {h2_T}。基準：斜率 0、R² 0。</li>\n"
-            "<li><b>H3</b>（樣本外預測，{spec}）：R²_OS（用過去資料逐日預測，再和基準預測比"
+            "<li><b>H3</b>（樣本外預測，{spec}）：R²_OS（每月用截至上月底的資料重新估計一次，預測當月每一天，再和基準預測比"
             "誤差，正數表示比基準好）對比擴張平均 {os_mean:.3g}，對比零預測 {os_zero:.3g}，"
             "Clark-West p 值 {cw_p:.3g}（Clark-West 是檢定預測是否真的比基準好的方法）。"
             "基準 R²_OS：0。</li>\n"
@@ -347,9 +368,10 @@ TEXT = {
         ),
         "t5": "樣本外預測",
         "x5": (
-            "每次只用更早的資料，一個交易日一個交易日往前預測。R²_OS 把預測的平方誤差拿去和"
+            "每個月重新估計一次模型（每月重估）：用截至上個月底的所有資料估計，該月份的係數再拿去"
+            "預測這個月的每一個交易日，所以任何預測都沒用到當月或更晚的資料。R²_OS 把預測的平方誤差拿去和"
             "「擴張平均」預測（用至今所有日子的平均當預測）以及「零預測」比較；正數代表比該基準好，"
-            "沒有技能時為 0。Clark-West p 值檢定的是同一個比較。"
+            "沒有技能時為 0；單位是百分比。Clark-West p 值檢定的是同一個比較。"
         ),
         "t6": "訊號拆解",
         "x6": (
@@ -359,23 +381,36 @@ TEXT = {
         "t7": "10:00 前就已知的控制變數",
         "x7": (
             "每次加入一個控制變數，最後再全部一起加，重新看 r1 的斜率；所有控制變數都只用 "
-            "10:00 以前能取得的資訊。請把每個 r1 係數和 base_same_rows（同樣資料列上的基準斜率）"
-            "對照。第二張表是「全部控制一起加」迴歸中各控制變數的係數。"
+            "10:00 以前能取得的資訊。請把每個第一個半小時報酬的係數和「同一批交易日、不加控制變數的斜率」"
+            "對照。每個樣本一張表；t 值用「標準誤算法」欄所列的標準誤，交易日數 T 是用到的交易日數。"
+            "第二組表是「全部控制一起加」迴歸中各控制變數的係數，單位是 bp（1 bp = 0.01%）："
+            "控制變數每增加 1 單位（是非題為 0 變 1），最後半小時報酬平均多多少 bp。"
         ),
         "cap7": "<p>各控制變數的係數（全部控制一起加的迴歸）：</p>",
+        "cap8": (
+            "<p>單檔 ETF 的 t 值用 {one}；合併列的 t 值用 {pool}。DK t 是 Driscoll-Kraay t，"
+            "只有合併列才有。交易日數是用到的交易日數。Holm 校正 p 是依檢定的 ETF 檔數修正過的 "
+            "p 值。</p>"
+        ),
+        "pooled": "合併",
+        "hd_slope": "斜率",
+        "hd_holm": "Holm 校正 p",
+        "hd_days": "交易日數",
+        "hd_dk": "DK t",
+        "hd_etf": "ETF",
         "t8": "其他 ETF 面板",
         "x8": (
-            "同一個斜率，拿去看其他 ETF，先逐檔看，再依分組合併。Holm 校正 p 是依檢定的 ETF "
-            "檔數修正過的 p 值（Holm 是控制「檢定多次容易誤中」的方法）；Driscoll-Kraay t 是合併"
-            "資料時用的 t 值（Driscoll-Kraay 是容許各檔同日相關、且前後日相關的誤差算法）。"
-            "基準：斜率 0、R² 0。"
+            "同一個斜率，拿去看其他 ETF：每檔一列，每個分組再有一列合併，三個樣本並排。"
+            "Holm 是控制「檢定多次容易誤中」的方法；Driscoll-Kraay 是容許各檔同日相關、且前後日"
+            "相關的誤差算法。基準：斜率 0。"
         ),
         "t9": "擇時規則",
         "x9": (
             "在最後半小時，順著第一個半小時的方向交易，扣掉成本，並和兩個基準比：一直做多"
-            "（「一直做多的 Sharpe」欄）以及完全不交易（Sharpe 0，也就是零規則）。這裡只列"
-            "單邊成本 0 與 1 bp 的結果，其餘成本見項目 9 的完整表格。Sharpe 的區間是 bootstrap "
-            "重抽區間。"
+            "（「一直做多的 Sharpe」欄）以及完全不交易（Sharpe 0，也就是零規則）。每個規則都列出"
+            "全部五種單邊成本（0、0.5、1、2、5 bp），先列 2014–26。損益兩平成本是讓該規則平均報酬"
+            "降到零的單邊成本；若未扣成本的平均報酬本來就不是正的，這格留空並附備註。Sharpe 的"
+            "區間是 bootstrap 重抽區間。"
         ),
     },
 }
@@ -393,31 +428,107 @@ def _label(lang: str, col: str, v):
     return table[v]
 
 
-def _fmt(v) -> str:
-    """Cell text: None/NaN blank, floats to 4 significant digits, everything HTML-escaped."""
+P_COLS = {"p", "p_holm", "cw_p_vs_mean", "cw_p_vs_zero"}
+PCT_COLS = {"r2", "baseline_r2", "r2_os_vs_mean", "r2_os_vs_zero"}
+FIXED2_COLS = {
+    "t", "t_dk", "cw_t_vs_mean", "cw_t_vs_zero", "sharpe", "sharpe_ci_lo", "sharpe_ci_hi",
+    "sharpe_always_long",
+}  # fmt: skip
+BP_COLS = {"coef", "baseline_coef"}
+BP_TERMS = {"const", "D"}  # return-type terms (an intercept or a shift in it), shown in bp
+SAMPLE_ORDER = ("OVERLAP", "POST", "FULL")
+SCROLL = '<div class="t" style="overflow-x:auto">'
+
+
+def _sig(v: float, digits: int = 4) -> str:
+    """`digits` significant digits in plain decimal notation, never e-notation."""
+    if v == 0:
+        return "0"
+    places = max(digits - 1 - math.floor(math.log10(abs(v))), 0)
+    text = f"{v:.{places}f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _fmt(v, col: str = "", bp: bool = False) -> str:
+    """Cell text: None/NaN blank; p, %, t and Sharpe in fixed formats; the rest 4 significant
+    digits; bp-unit coefficients scaled to basis points; all HTML-escaped, never e-notation."""
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return ""
-    if isinstance(v, float):
-        return escape(f"{v:.4g}")
-    return escape(str(v))
+    if not isinstance(v, float):
+        return escape(str(v))
+    if col in P_COLS:
+        text = "<0.001" if v < 0.001 else f"{v:.3f}"
+    elif col in PCT_COLS:
+        text = f"{v * 100:.2f}"
+    elif col in FIXED2_COLS:
+        text = f"{v:.2f}"
+    elif bp and col in BP_COLS:
+        text = _sig(v * 1e4)
+    else:
+        text = _sig(v)
+    return escape("0.00" if text == "-0.00" else text)
 
 
-def _head(lang: str, col: str) -> str:
+def _head(lang: str, col: str, bp: bool = False) -> str:
     if lang == "en":
-        return col
+        name = f"{col} (bp)" if bp and col in BP_COLS else col
+        return f"{name} (%)" if col in PCT_COLS else name
     assert col in HEADERS_ZH, f"no Chinese header for column {col!r}: add it to HEADERS_ZH"
-    return HEADERS_ZH[col]
+    name = HEADERS_ZH[col]
+    return name.replace("係數", "係數（單位：bp）") if bp and col in BP_COLS else name
 
 
-def _table(df: pl.DataFrame, cols: list[str], lang: str) -> str:
-    head = "".join(f"<th>{escape(_head(lang, c))}</th>" for c in cols)
+def _table(df: pl.DataFrame, cols: list[str], lang: str, bp: bool = False) -> str:
+    """One scrollable table. `bp`: every coef column is in basis points; otherwise rows whose
+    `unit` column says "bp" are (so a table can mix intercept shifts and slopes, unit shown)."""
+    if bp:
+        assert "unit" not in df.columns
+    row_bp = df["unit"].eq("bp").to_list() if "unit" in df.columns else [bp] * df.height
+    head = "".join(f"<th>{escape(_head(lang, c, bp))}</th>" for c in cols)
     body = "".join(
         "<tr>"
-        + "".join(f"<td>{_fmt(_label(lang, c, v))}</td>" for c, v in zip(cols, row, strict=True))
+        + "".join(
+            f"<td{' class=wrap' if c == 'note' else ''}>{_fmt(_label(lang, c, v), c, row_bp[i])}</td>"
+            for c, v in zip(cols, row, strict=True)
+        )
         + "</tr>"
-        for row in df.select(cols).iter_rows()
+        for i, row in enumerate(df.select(cols).iter_rows())
     )
-    return f'<div class="t"><table><tr>{head}</tr>{body}</table></div>'
+    return f"{SCROLL}<table><tr>{head}</tr>{body}</table></div>"
+
+
+def _panel_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
+    """Item 8: one row per ETF (pooled row last) per group, the three samples side by side."""
+    sub = [("slope", "hd_slope"), ("t", None), ("p_holm", "hd_holm"), ("T", "hd_days")]
+    sub.append(("t_dk", "hd_dk"))
+    top = f'<th rowspan="2">{_head(lang, "group")}</th><th rowspan="2">{escape(tx["hd_etf"])}</th>'
+    low = ""
+    for smp in SAMPLE_ORDER:
+        top += f'<th class="g" colspan="{len(sub)}">{escape(_label(lang, "sample", smp))}</th>'
+        low += "".join(f"<th>{escape(tx[h] if h else 't')}</th>" for _, h in sub)
+    rows = ""
+    for grp in df["group"].unique(maintain_order=True):
+        g = df.filter(pl.col("group") == grp)
+        syms = [x for x in g["symbol"].unique(maintain_order=True) if x != "POOLED"]
+        for sym in [*syms, "POOLED"]:
+            cells = ""
+            for smp in SAMPLE_ORDER:
+                r = g.filter((pl.col("symbol") == sym) & (pl.col("sample") == smp))
+                assert r.height == 1, f"panel row missing or repeated: {grp} {sym} {smp}"
+                rec = r.row(0, named=True)
+                cells += "".join(f"<td>{_fmt(rec[c], c)}</td>" for c, _ in sub)
+            name = tx["pooled"] if sym == "POOLED" else sym
+            rows += f"<tr><td>{escape(_label(lang, 'group', grp))}</td><td>{escape(name)}</td>{cells}</tr>"
+    return f"{SCROLL}<table><tr>{top}</tr><tr>{low}</tr>{rows}</table></div>"
+
+
+def _se_caption(df: pl.DataFrame, lang: str, tx: dict) -> str:
+    one = df.filter(pl.col("symbol") != "POOLED")["se_kind"].unique().to_list()
+    pool = df.filter(pl.col("symbol") == "POOLED")["se_kind"].unique().to_list()
+    assert len(one) == 1 and len(pool) == 1, f"item 8 se_kind not uniform: {one} {pool}"
+    return tx["cap8"].format(
+        one=_label(lang, "se_kind", one[0]), pool=_label(lang, "se_kind", pool[0])
+    )
 
 
 def _section(tx: dict, n: int, text: str, *parts: str) -> str:
@@ -465,7 +576,34 @@ def _render(lang: str, s: dict, t: dict, img: str, count_line: str) -> str:
         n=r3.height, mean=r3["slope"].mean(), lo=r3["slope"].min(), hi=r3["slope"].max(), excl=excl
     )
     ctrl = t[7].filter((pl.col("variant") == "all") & ~r1 & (pl.col("term") != "const"))
-    t9 = t[9].filter(pl.col("cost_bp").is_in([0.0, 1.0]))
+    s9 = {"POST": 0, "OVERLAP": 1, "FULL": 2}
+    rule_rank = {r: i for i, r in enumerate(t[9]["rule"].unique(maintain_order=True))}
+    t9 = (
+        t[9]
+        .with_columns(
+            pl.col("sample").replace_strict(s9, return_dtype=pl.Int64).alias("_s"),
+            pl.col("rule").replace_strict(rule_rank, return_dtype=pl.Int64).alias("_r"),
+        )
+        .sort("_s", "_r", "cost_bp")
+    )
+    t4 = t[4].with_columns(
+        pl.when(pl.col("term").is_in(BP_TERMS))
+        .then(pl.lit("bp"))
+        .when(pl.col("term") == "D*r1")
+        .then(pl.lit("slope"))
+        .alias("unit")  # the joint row has no coefficient, so no unit
+    )
+
+    def per_sample(df: pl.DataFrame, cols: list[str], bp: bool = False) -> str:
+        """One small table per sample (OVERLAP, POST, FULL), each under its own label."""
+        out = ""
+        for smp in SAMPLE_ORDER:
+            part = df.filter(pl.col("sample") == smp)
+            assert part.height, f"no rows for sample {smp}"
+            out += f"<p><b>{escape(_label(lang, 'sample', smp))}</b></p>" + _table(
+                part, cols, lang, bp
+            )
+        return out
 
     def tab(df: pl.DataFrame, cols: list[str]) -> str:
         return _table(df, cols, lang)
@@ -479,7 +617,7 @@ def _render(lang: str, s: dict, t: dict, img: str, count_line: str) -> str:
             tx["x3"].format(s3=escape(s3)),
             f'<img alt="{escape(tx["alt"])}" src="data:image/png;base64,{img}">',
         ),
-        _section(tx, 4, tx["x4"], tab(t[4], [*REG, "chi2"])),
+        _section(tx, 4, tx["x4"], tab(t4, [*REG[:4], "unit", *REG[4:], "chi2"])),
         _section(
             tx,
             5,
@@ -504,35 +642,18 @@ def _render(lang: str, s: dict, t: dict, img: str, count_line: str) -> str:
             tx,
             7,
             tx["x7"],
-            tab(t[7].filter(r1), [*REG, "n_dropped"]),
+            per_sample(
+                t[7].filter(r1),
+                [c for c in REG if c not in ("sample", "term")] + ["n_dropped"],
+            ),
             tx["cap7"],
-            tab(ctrl, ["sample", "term", "coef", "baseline_coef", "t", "se_kind", "p", "T"]),
-        ),
-        _section(
-            tx,
-            8,
-            tx["x8"],
-            tab(
-                t[8],
-                [
-                    "group",
-                    "sample",
-                    "symbol",
-                    "slope",
-                    "baseline_slope",
-                    "t",
-                    "se_kind",
-                    "p",
-                    "p_holm",
-                    "t_dk",
-                    "r2",
-                    "baseline_r2",
-                    "T",
-                    "sessions_in_sample",
-                    "rows_excluded",
-                ],
+            per_sample(
+                ctrl,
+                ["term", "coef", "baseline_coef", "t", "se_kind", "p", "T"],
+                bp=True,
             ),
         ),
+        _section(tx, 8, tx["x8"], _se_caption(t[8], lang, tx), _panel_table(t[8], lang, tx)),
         _section(
             tx,
             9,

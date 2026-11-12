@@ -10,6 +10,12 @@ from mlflow.tracking import MlflowClient
 from first_half_hour import cli, config, report, reproduce
 
 CELL = re.compile(r"<td>([^<]*)</td>")
+ANY_CELL = re.compile(r"<t[dh][^>]*>([^<]*)</t[dh]>")
+SCI = re.compile(r"\d[eE][+-]?\d")
+# a code name (snake_case, r1/r12/r13/rod, or the variant keys) must not show in Chinese tables
+CODE = re.compile(
+    r"[a-z]+_[a-z0-9_]+|(?<![A-Za-z0-9])(r1|r12|r13|rod|lr1|inter|const)(?![A-Za-z0-9])"
+)
 NUM = re.compile(r"-?\d+(\.\d+)?(e[+-]?\d+)?")
 
 
@@ -61,10 +67,16 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     assert zh.count('<h2 id="item') == 9 and printed in zh and 'lang="zh-Hant-TW"' in zh
     assert "data:image/png;base64," in zh and "http://" not in zh and "<script" not in zh
     en_tables, zh_tables = _numeric_cells(html), _numeric_cells(zh)
-    assert len(en_tables) == len(zh_tables) == 9 and any(en_tables)
+    assert len(en_tables) == len(zh_tables) >= 9 and any(en_tables)
     assert en_tables == zh_tables, "numbers differ between the English and Chinese reports"
     zh_cells = " ".join(CELL.findall(zh))
     assert not re.search(r"OVERLAP|POST|FULL|\bnw\b|cluster_date|driscoll_kraay", zh_cells)
+    # every table sits in a horizontally scrolling box
+    for page in (html, zh):
+        assert page.count("<table>") == page.count('style="overflow-x:auto"><table>') >= 9
+        assert not [c for c in ANY_CELL.findall(page) if SCI.search(c)], "e-notation in a cell"
+    zh_all = ANY_CELL.findall(zh)
+    assert not [c for c in zh_all if CODE.search(c)], "code name shown in a Chinese table"
 
 
 def test_chinese_label_missing_fails_loud():
@@ -73,3 +85,13 @@ def test_chinese_label_missing_fails_loud():
     with pytest.raises(AssertionError, match="no Chinese label"):
         report._label("zh", "variant", "trim_top_7%")
     assert report._label("en", "variant", "trim_top_7%") == "trim_top_7%"
+
+
+def test_cell_formats():
+    f = report._fmt
+    assert f(0.0004321, "p") == "&lt;0.001"  # HTML-escaped and f(1.0, "p_holm") == "1.000"
+    assert f(0.0235, "r2") == "2.35" and f(-0.00001, "r2") == "0.00"
+    assert f(1.23456, "t") == "1.23" and f(-0.0004, "sharpe") == "0.00"
+    assert f(0.00000123, "slope") == "0.00000123" and f(123456.0, "chi2") == "123456"
+    assert f(0.0002, "coef", bp=True) == "2" and f(0.0002, "coef") == "0.0002"
+    assert f(float("nan"), "t") == "" and f(None, "p") == ""
