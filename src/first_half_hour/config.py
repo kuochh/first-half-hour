@@ -129,10 +129,55 @@ CH2_SEED: int = 20261112
 """random_state of the boosted trees, the elastic net (saga) and the permutation shuffles."""
 CH2_TIERS: tuple[str, ...] = ("logit", "enet", "hgb")
 """Candidate tiers, simplest first (ties in the choice rule go to the simpler tier)."""
-CH2_PROB_CLIP: float = 1e-6
-"""Probabilities are clipped to [clip, 1 - clip] for log loss only."""
+CH2_MAX_ITER: int = 5000
+"""max_iter of every logistic / elastic-net fit; n_iter_ < CH2_MAX_ITER is asserted on each fit."""
 CH2_SPA_REPS: int = 1_000
 CH2_SPA_SEED: int = 20261113
 CH2_PRIMARY_ALPHA: float = 0.05
 """One-sided Diebold-Mariano level of the primary criterion (D19)."""
 CH2_REGISTERED_MODEL: str = "fhh-chapter2-hit"
+
+# Chapter 2 (target, features, baselines)
+TARGET_B: float = 0.004
+"""The further move: the day's later high reaches the 10:00 price times (1 + B) before the close."""
+DESCRIPTIVE_BS: tuple[float, ...] = (0.002, 0.006)
+"""Descriptive-only thresholds, run beside TARGET_B and counted as runs."""
+MIRROR_B: float = 0.004
+"""Threshold of the descriptive mirror target (a later low at or below P10 * (1 - MIRROR_B))."""
+TAU_MIN_REGULAR: int = 360
+TAU_MIN_HALF_DAY: int = 180
+"""Minutes from 10:00 to the close, regular and half-day sessions."""
+FIRST_HALF_HOUR_BARS: int = 30
+"""One-minute bars (hence returns) in 09:30-10:00; sigma = sqrt(rv_fh / FIRST_HALF_HOUR_BARS)."""
+PROB_CLIP_EPS: float = 1e-6
+"""Probabilities are clipped to [eps, 1 - eps] for log loss only."""
+
+CH2_Z_FEATURE: bool = True
+"""Add z = ln(1+TARGET_B) / (sigma sqrt(tau)) to the feature list so the logistic tiers nest the
+calibrated formula (added on the plan auditor's advice before any real-data result was seen)."""
+TOUCH_REL_TOL: float = 1e-9
+"""Relative tolerance for a touch exactly at P10 * (1 +/- b), so float rounding cannot turn it into a miss."""
+
+_BASE_FEATURES: tuple[str, ...] = (
+    "r_on", "r_fh", "abs_r_on", "abs_r_fh", "sigma", "or_high", "or_low", "relvol",
+    "rv_day_lag", "ret_prev", "vix_lag", "vix_ratio_lag", "fomc", "cpi", "payroll",
+    "opex_monthly", "opex_quarterly", "daily_expiry_era", "dow_tue", "dow_wed", "dow_thu",
+    "dow_fri", "is_half_day",
+)  # fmt: skip
+FEATURE_COLUMNS: tuple[str, ...] = _BASE_FEATURES + (("z",) if CH2_Z_FEATURE else ())
+"""The chapter 2 feature list, all known by 10:00 (booleans enter as 0/1)."""
+
+# Chapter 2, economics and interpretability (T3)
+TARGET_B_BY_NAME: dict[str, float] = {"up_0.4": 0.004}
+"""Target name to its b; the economics code asserts the b it is given matches the target."""
+N_TRADED_FORECASTS: int = 4
+"""The three tuned tiers and the calibrated formula."""
+TRADE_THRESHOLDS: tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7)
+"""Candidate probability thresholds; year Y's is picked on the same model's year Y-1 forecasts."""
+N_TRIALS: int = 20
+"""Deflated-Sharpe trial count: 5 thresholds x 4 traded forecasts (fixed; asserted in trial_set)."""
+THRESHOLD_COST_BP: float = 1.0
+"""Cost per side at which the threshold is chosen."""
+PERMUTATION_REPEATS: int = 10
+PERMUTATION_SEED: int = 20260512
+"""Permutation-importance shuffles per feature and the fixed seed."""
