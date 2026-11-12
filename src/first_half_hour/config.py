@@ -86,3 +86,19 @@ TERCILE_WARMUP: int = 252
 
 VIX_MAX_STALE_DAYS: int = 7
 """A VIX observation older than this (calendar days) before the session fails loud."""
+
+# ETF panel (S4)
+EQUITY_ETFS: tuple[str, ...] = (
+    "QQQ",
+    "IWM",
+    "IVV",
+    "VOO",
+    "VTI",
+    "RSP",
+    "XLE",
+    "XLF",
+    "EFA",
+    "EEM",
+)
+NON_EQUITY_ETFS: tuple[str, ...] = ("TLT", "AGG", "BND", "HYG", "GLD")
+"""Panel groups, reported separately: Holm is applied within each group."""

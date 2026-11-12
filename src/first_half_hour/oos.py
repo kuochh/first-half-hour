@@ -20,11 +20,6 @@ SPECS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _nw_lags(t: int) -> int:
-    """Newey-West lags floor(4 * (T/100) ** (2/9)); same rule as config.nw_lags (S2)."""
-    return math.floor(4 * (t / 100) ** (2 / 9))
-
-
 def recursive_forecasts(
     table: pl.DataFrame, start: date | None = None, end: date | None = None
 ) -> pl.DataFrame:
@@ -79,7 +74,7 @@ def clark_west(
     Newey-West errors; t = mean(f)/se; p = 1 - Phi(t) (standard normal).
     """
     f = (y - bench) ** 2 - ((y - yhat) ** 2 - (bench - yhat) ** 2)
-    lags = _nw_lags(len(f)) if lags is None else lags
+    lags = config.nw_lags(len(f)) if lags is None else lags
     fit = sm.OLS(f, np.ones_like(f)).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
     t = float(fit.tvalues[0])
     return t, 0.5 * math.erfc(t / math.sqrt(2))
@@ -109,7 +104,7 @@ def oos_summary(fc: pl.DataFrame) -> pl.DataFrame:
                 "cw_p_vs_mean": p_mean,
                 "cw_t_vs_zero": t_zero,
                 "cw_p_vs_zero": p_zero,
-                "nw_lags": _nw_lags(g.height),
+                "nw_lags": config.nw_lags(g.height),
             }
         )
     return pl.DataFrame(rows)
