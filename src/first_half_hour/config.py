@@ -58,3 +58,31 @@ SAMPLES: dict[str, tuple[date, date]] = {
 }
 """Chapter 1 samples, inclusive. OVERLAP is the replication window (the paper's sample ran to 2013);
 POST is data the paper never saw."""
+
+
+def nw_lags(n_rows: int) -> int:
+    """Newey-West lag count, floor(4 * (T / 100) ** (2 / 9)), T = rows in that regression."""
+    assert n_rows > 0, f"need at least one row, got {n_rows}"
+    return int(4 * (n_rows / 100) ** (2 / 9))
+
+
+ROLLING_WINDOW: int = 252
+"""Sessions in the rolling-slope window (about one year)."""
+
+BREAK_DATES: tuple[date, ...] = (date(2014, 1, 2), date(2020, 3, 2), date(2022, 4, 18))
+"""Structural-break candidates: publication era, Covid, Tuesday expiries listed."""
+
+TRIM_SHARES: tuple[float, ...] = (0.01, 0.03, 0.05)
+"""Shares of the largest |r1| trimmed in the descriptive robustness rows."""
+
+DAILY_EXPIRY_START: date = date(2022, 5, 11)
+"""First session of the daily-expiry era (Thursday SPX expiries listed on this date)."""
+
+RELVOL_WINDOW: int = 20
+"""Previous kept sessions in the relative-volume denominator."""
+
+TERCILE_WARMUP: int = 252
+"""Sessions before the expanding tercile cut-offs exist."""
+
+VIX_MAX_STALE_DAYS: int = 7
+"""A VIX observation older than this (calendar days) before the session fails loud."""
