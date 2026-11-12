@@ -110,3 +110,29 @@ FOMC_ONE_DAY_MEETINGS: frozenset[date] = frozenset(
 session is the file date itself. Every other scheduled meeting in data/daily/fomc_meetings.csv is
 two-day and announces on the next session. Source: the Fed's historical meeting calendars,
 federalreserve.gov/monetarypolicy/fomchistorical2011.htm and ...2012.htm."""
+
+
+# Chapter 2 (walk-forward). Read at call time so synthetic mode can override them.
+CH2_FIRST_TEST_YEAR: int = 2015
+"""First walk-forward test year; the last is the last year in the frame (2026, to 2026-08-31)."""
+CH2_VALID: tuple[date, date] = (date(2016, 1, 1), date(2018, 12, 31))
+"""Validation window: the only data the tier choice reads."""
+CH2_JUDGE: tuple[date, date] = (date(2019, 1, 2), date(2026, 8, 31))
+"""Judging window (seen data, exploration)."""
+CH2_ENET_C: tuple[float, ...] = (0.01, 0.1, 1.0)
+CH2_ENET_L1: tuple[float, ...] = (0.2, 0.5, 0.8)
+CH2_HGB_LR: tuple[float, ...] = (0.03, 0.1)
+CH2_HGB_DEPTH: tuple[int, ...] = (2, 3)
+CH2_HGB_ITER: tuple[int, ...] = (100, 300)
+CH2_HGB_MIN_LEAF: int = 50
+CH2_SEED: int = 20261112
+"""random_state of the boosted trees, the elastic net (saga) and the permutation shuffles."""
+CH2_TIERS: tuple[str, ...] = ("logit", "enet", "hgb")
+"""Candidate tiers, simplest first (ties in the choice rule go to the simpler tier)."""
+CH2_PROB_CLIP: float = 1e-6
+"""Probabilities are clipped to [clip, 1 - clip] for log loss only."""
+CH2_SPA_REPS: int = 1_000
+CH2_SPA_SEED: int = 20261113
+CH2_PRIMARY_ALPHA: float = 0.05
+"""One-sided Diebold-Mariano level of the primary criterion (D19)."""
+CH2_REGISTERED_MODEL: str = "fhh-chapter2-hit"
