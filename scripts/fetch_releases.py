@@ -65,6 +65,43 @@ def check_ids(payload: dict) -> None:
         assert names.get(rid) == name, f"{release}: id {rid} is {names.get(rid)!r}, not {name!r}"
 
 
+def one_per_month(df: pl.DataFrame) -> pl.DataFrame:
+    """Keep one date per release per month: FRED's release calendar also lists side releases.
+
+    CPI: each February lists the seasonal-factor revision a few days BEFORE the January CPI, so
+    the later date is kept. Payroll: a few months list a correction a few days AFTER the
+    Employment Situation, so the earlier date is kept. Any other pattern fails loud.
+    """
+    month = pl.col("date").dt.truncate("1mo")
+    cpi_feb = (pl.col("release") == "cpi") & (pl.col("date").dt.month() == 2)
+    keep_last = (
+        df.filter(pl.col("release") == "cpi").group_by(month.alias("m")).agg(pl.col("date").max())
+    )
+    keep_first = (
+        df.filter(pl.col("release") == "payroll")
+        .group_by(month.alias("m"))
+        .agg(pl.col("date").min())
+    )
+    kept = pl.concat(
+        [
+            keep_last.with_columns(release=pl.lit("cpi")),
+            keep_first.with_columns(release=pl.lit("payroll")),
+        ]
+    ).select("date", "release")
+    dropped = df.join(kept, on=["date", "release"], how="anti")
+    gap = dropped.join(kept.rename({"date": "kept"}), on="release").filter(
+        (pl.col("kept") - pl.col("date")).dt.total_days().abs() <= 7
+    )
+    assert gap.select("date", "release").unique().height == dropped.height, (
+        f"a dropped side release is not within 7 days of a kept one: {dropped.rows()}"
+    )
+    assert dropped.filter(pl.col("release") == "cpi").select(cpi_feb.all()).item() is not False, (
+        "a CPI side release outside February"
+    )
+    print(f"dropped {dropped.height} side releases (one date per release per month kept)")
+    return kept.sort("date", "release")
+
+
 def parse(rows: list[tuple[str, date]]) -> pl.DataFrame:
     """(release, date) pairs -> frame sorted by date, validated. Fails on any surprise."""
     df = pl.DataFrame(rows, schema={"release": pl.String, "date": pl.Date}, orient="row")
@@ -79,6 +116,7 @@ def parse(rows: list[tuple[str, date]]) -> pl.DataFrame:
     other = off.filter(~good_friday)
     assert other.is_empty(), f"release dates that are not XNYS sessions: {other.rows()}"
     print(f"{off.height} Good Friday releases kept (market closed that day): {off.rows()}")
+    df = one_per_month(df)
     last_year = config.DATA_END.year
     counts = df.group_by(pl.col("date").dt.year().alias("year"), "release").len()
     for year, release, n in counts.iter_rows():
