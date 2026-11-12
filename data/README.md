@@ -12,7 +12,7 @@ redistribution. Everything published here is derived from it.
 | Exchange calendar, half-days | `exchange-calendars` (XNYS) | installed with the package |
 | FOMC meeting dates | Federal Reserve FOMC calendar | a hand-made CSV kept under `data/daily/`; no script fetches it |
 | CPI and payroll release dates | not yet obtained | to be added |
-| SPY ex-dividend dates | not yet obtained | to be added |
+| SPY ex-dividend dates, 2011-01 to 2026-08 (`data/daily/spy_dividends.csv`: ex_date, amount) | Alpha Vantage `DIVIDENDS`, `symbol=SPY` | `uv run --env-file .env python scripts/fetch_dividends.py` (one request; a free key works) |
 
 ## Checking that your data matches
 
