@@ -26,7 +26,8 @@ fhh = "first_half_hour.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --durations=10"
+markers = ["slow: over the fast-set budget; runs in CI, not at pre-push"]
 
 [tool.ruff]
 line-length = 100

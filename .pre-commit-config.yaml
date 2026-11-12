@@ -27,6 +27,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      - id: fast-tests
+        name: fast tests (under 60 s)
+        entry: uv run pytest -m "not slow"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
