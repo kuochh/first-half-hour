@@ -8,6 +8,7 @@ through `bars.rth_bars`.
 import logging
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 from first_half_hour import bars, config
@@ -18,7 +19,7 @@ _FH_LAST = config.OPENING_BAR_LAST
 _BOOL_FEATURES = tuple(
     c for c in config.FEATURE_COLUMNS if c in {
         "fomc", "cpi", "payroll", "opex_monthly", "opex_quarterly", "daily_expiry_era",
-        "dow_tue", "dow_wed", "dow_thu", "dow_fri", "is_half_day", "month_end",
+        "dow_tue", "dow_wed", "dow_thu", "dow_fri", "is_half_day",
     }
 )  # fmt: skip
 
@@ -27,7 +28,7 @@ def target(root: Path, symbol: str, cal: pl.DataFrame, b: float, side: str = "up
     """(session, y, p10) for sessions with a 09:59 bar.
 
     side "up": y = 1 if max(high of 10:00 .. C-1) >= P10 * (1 + b); side "down": y = 1 if
-    min(low of 10:00 .. C-1) <= P10 * (1 - b). A touch exactly at the level counts.
+    min(low of 10:00 .. C-1) <= P10 * (1 - b). A touch exactly at the level counts (relative tolerance `config.TOUCH_REL_TOL`).
     """
     assert side in ("up", "down"), f"side must be 'up' or 'down', got {side!r}"
     assert b > 0, f"b must be positive, got {b}"
@@ -46,10 +47,11 @@ def target(root: Path, symbol: str, cal: pl.DataFrame, b: float, side: str = "up
         .collect()
     )
     assert (per["n_after"] > 0).all(), f"{symbol}: a session with a 09:59 bar and none after it"
+    tol = config.TOUCH_REL_TOL  # a touch exactly at the level must not be lost to float rounding
     hit = (
-        pl.col("hi") >= pl.col("p10") * (1 + b)
+        pl.col("hi") >= pl.col("p10") * (1 + b) * (1 - tol)
         if side == "up"
-        else (pl.col("lo") <= pl.col("p10") * (1 - b))
+        else (pl.col("lo") <= pl.col("p10") * (1 - b) * (1 + tol))
     )
     return per.select("session", y=hit.cast(pl.Int8), p10="p10")
 
@@ -61,8 +63,9 @@ def features(
 
     `table` is `returns.daily_table`, `ctrl` is `controls.controls` on it (calendar and VIX columns
     are taken from it unchanged). Nulls are kept: a session with any null feature is dropped by the
-    caller for every model alike. sigma = sqrt(rv_fh / 30) and is null when the first half-hour
-    lacks one of its 30 bars. ret_prev is the previous calendar session's close-to-close return,
+    caller for every model alike. sigma = sqrt(rv_fh / 30) for every session (a missing bar does
+    not drop it: the span is still 30 minutes) and is asserted positive. z (if `config.CH2_Z_FEATURE`)
+    is ln(1 + TARGET_B) / (sigma sqrt(tau)), the up-side formula's z. ret_prev is the previous calendar session's close-to-close return,
     null when that session or the one before it is missing or dropped. r1 (Gao's regressor) and
     tau (minutes from 10:00 to the close) are not model features.
     """
@@ -96,9 +99,7 @@ def features(
         .with_columns(
             abs_r_on=pl.col("r_on").abs(),
             abs_r_fh=pl.col("r_fh").abs(),
-            sigma=pl.when(pl.col("n_bars") == config.FIRST_HALF_HOUR_BARS)
-            .then((pl.col("rv_fh") / config.FIRST_HALF_HOUR_BARS).sqrt())
-            .otherwise(None),
+            sigma=(pl.col("rv_fh") / config.FIRST_HALF_HOUR_BARS).sqrt(),
             or_high=pl.col("hi") / pl.col("p_10") - 1,
             or_low=pl.col("lo") / pl.col("p_10") - 1,
             tau=pl.when(pl.col("is_half_day"))
@@ -107,10 +108,14 @@ def features(
             .cast(pl.Float64),
         )
         .with_columns(pl.col(c).cast(pl.Float64) for c in _BOOL_FEATURES)
-        .select("session", "tau", "r1", *config.FEATURE_COLUMNS)
     )
+    assert out["n_bars"].null_count() == 0, "a session of the table has no bars"
+    assert out["sigma"].null_count() == 0 and (out["sigma"] > 0).all(), "sigma must be positive"
+    short = int((out["n_bars"] < config.FIRST_HALF_HOUR_BARS).sum())
+    out = out.with_columns(
+        z=np.log1p(config.TARGET_B) / (pl.col("sigma") * pl.col("tau").sqrt()),
+    ).select("session", "tau", "r1", *config.FEATURE_COLUMNS)
     assert out.height == t.height
-    short = t.height - int(opening.filter(pl.col("n_bars") == config.FIRST_HALF_HOUR_BARS).height)
     log.info("features: %d sessions, %d with a short first half-hour", out.height, short)
     return out
 

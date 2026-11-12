@@ -126,10 +126,17 @@ FIRST_HALF_HOUR_BARS: int = 30
 PROB_CLIP_EPS: float = 1e-6
 """Probabilities are clipped to [eps, 1 - eps] for log loss only."""
 
-FEATURE_COLUMNS: tuple[str, ...] = (
+CH2_Z_FEATURE: bool = True
+"""Add z = ln(1+TARGET_B) / (sigma sqrt(tau)) to the feature list so the logistic tiers nest the
+calibrated formula (added on the plan auditor's advice before any real-data result was seen)."""
+TOUCH_REL_TOL: float = 1e-9
+"""Relative tolerance for a touch exactly at P10 * (1 +/- b), so float rounding cannot turn it into a miss."""
+
+_BASE_FEATURES: tuple[str, ...] = (
     "r_on", "r_fh", "abs_r_on", "abs_r_fh", "sigma", "or_high", "or_low", "relvol",
     "rv_day_lag", "ret_prev", "vix_lag", "vix_ratio_lag", "fomc", "cpi", "payroll",
     "opex_monthly", "opex_quarterly", "daily_expiry_era", "dow_tue", "dow_wed", "dow_thu",
-    "dow_fri", "is_half_day", "month_end",
+    "dow_fri", "is_half_day",
 )  # fmt: skip
+FEATURE_COLUMNS: tuple[str, ...] = _BASE_FEATURES + (("z",) if CH2_Z_FEATURE else ())
 """The chapter 2 feature list, all known by 10:00 (booleans enter as 0/1)."""
