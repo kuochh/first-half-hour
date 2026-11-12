@@ -32,6 +32,7 @@ from first_half_hour import (
     oos,
     panel,
     regress,
+    report,
     returns,
     synthetic,
     timing,
@@ -279,4 +280,6 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False) -> str:
     assert len(found) == n_parent + n_child, (
         f"MLflow holds {len(found)}, logged {n_parent + n_child}"
     )
-    return f"chapter 1: {n_parent} items, {n_parent + n_child} runs ({n_child} nested)"
+    count_line = f"chapter 1: {n_parent} items, {n_parent + n_child} runs ({n_child} nested)"
+    report.write_chapter1_report(out, count_line)
+    return count_line

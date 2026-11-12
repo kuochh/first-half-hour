@@ -1,6 +1,7 @@
 """`fhh reproduce --synthetic` end to end: nine MLflow items, the count line, H1-H5 with baselines."""
 
 import json
+import re
 
 import mlflow
 import pytest
@@ -38,3 +39,11 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     h5 = summary["H5"]
     assert h5["baseline_zero_sharpe"] == 0.0 and "baseline_always_long_sharpe" in h5
     assert h5["ci_lo"] <= h5["sharpe_net"] <= h5["ci_hi"]
+
+    html = (tmp_path / "chapter1_report.html").read_text()
+    assert html.count('<h2 id="item') == 9
+    assert printed in html and "data:image/png;base64," in html
+    assert re.findall(r'src="([^"]*)"', html) and all(
+        u.startswith("data:image/png;base64,") for u in re.findall(r'src="([^"]*)"', html)
+    )
+    assert "http://" not in html and "https://" not in html and "<script" not in html
