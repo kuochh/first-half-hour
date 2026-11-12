@@ -7,7 +7,16 @@ import mlflow
 import pytest
 from mlflow.tracking import MlflowClient
 
-from first_half_hour import cli, config, reproduce
+from first_half_hour import cli, config, report, reproduce
+
+CELL = re.compile(r"<td>([^<]*)</td>")
+NUM = re.compile(r"-?\d+(\.\d+)?(e[+-]?\d+)?")
+
+
+def _numeric_cells(html: str) -> list[list[str]]:
+    """Per table, the cells that are pure numbers (labels differ by language, numbers must not)."""
+    tables = html.split("<table>")[1:]
+    return [[c for c in CELL.findall(t) if NUM.fullmatch(c)] for t in tables]
 
 
 @pytest.mark.slow
@@ -47,3 +56,20 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
         u.startswith("data:image/png;base64,") for u in re.findall(r'src="([^"]*)"', html)
     )
     assert "http://" not in html and "https://" not in html and "<script" not in html
+
+    zh = (tmp_path / "chapter1_report_zh.html").read_text()
+    assert zh.count('<h2 id="item') == 9 and printed in zh and 'lang="zh-Hant-TW"' in zh
+    assert "data:image/png;base64," in zh and "http://" not in zh and "<script" not in zh
+    en_tables, zh_tables = _numeric_cells(html), _numeric_cells(zh)
+    assert len(en_tables) == len(zh_tables) == 9 and any(en_tables)
+    assert en_tables == zh_tables, "numbers differ between the English and Chinese reports"
+    zh_cells = " ".join(CELL.findall(zh))
+    assert not re.search(r"OVERLAP|POST|FULL|\bnw\b|cluster_date|driscoll_kraay", zh_cells)
+
+
+def test_chinese_label_missing_fails_loud():
+    assert report._label("zh", "sample", "POST") == "2014–26（發表後）"
+    assert report._label("zh", "variant", "break_2014-01-02").startswith("2014-01-02")
+    with pytest.raises(AssertionError, match="no Chinese label"):
+        report._label("zh", "variant", "trim_top_7%")
+    assert report._label("en", "variant", "trim_top_7%") == "trim_top_7%"
