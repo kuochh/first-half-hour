@@ -43,6 +43,14 @@ FRED_SERIES: tuple[str, ...] = ("VIXCLS", "VXVCLS")
 FRED_DATE_COLUMN: str = "observation_date"
 FRED_MISSING_TOKEN: str = "."
 
+COSTS_BP: tuple[float, ...] = (0.0, 0.5, 1.0, 2.0, 5.0)
+"""Timing-rule trading costs, basis points per side (two sides per active day)."""
+TRADING_DAYS: int = 252
+"""Annualisation: Sharpe = daily mean / sd * sqrt(TRADING_DAYS)."""
+BOOTSTRAP_REPS: int = 10_000
+BOOTSTRAP_SEED: int = 20260511
+"""Stationary-bootstrap replications and the fixed seed for the Sharpe intervals."""
+
 SAMPLES: dict[str, tuple[date, date]] = {
     "OVERLAP": (date(2011, 1, 3), date(2013, 12, 31)),
     "POST": (date(2014, 1, 2), date(2026, 8, 31)),
