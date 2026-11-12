@@ -97,7 +97,9 @@ def fit_model(cfg: Cfg, x: np.ndarray, y: np.ndarray):
 
 
 def _check_frame(frame: pl.DataFrame, feats: list[str]) -> None:
-    need = ["session", "y", "sigma", "tau", "r1", *feats]
+    need = list(
+        dict.fromkeys(["session", "y", "sigma", "tau", "r1", *feats])
+    )  # sigma is also a feature
     missing = [c for c in need if c not in frame.columns]
     assert not missing, f"frame lacks columns {missing}"
     assert frame["session"].dtype == pl.Date, frame["session"].dtype

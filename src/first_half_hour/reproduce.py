@@ -1,4 +1,4 @@
-"""`fhh reproduce`: chapter 1, items 1-9, end to end, every sample/variant logged to MLflow.
+"""`fhh reproduce`: chapter 1 (items 1-9) and chapter 2, end to end, every variant logged to MLflow.
 
 Each item is one MLflow parent run; each row of its tidy table (a sample / variant / spec) is a
 nested child run with params and metrics. Tables go to `<out>/chapter1/item<N>.parquet`, the
@@ -9,6 +9,9 @@ rolling-slope figure to `<out>/figures/`, and H1-H5 with their baselines to
 (16 symbols x ~3,900 sessions x 390 bars) is far too slow for CI, so synthetic mode shrinks the
 study window to 2018-2020 and moves the sample and break dates inside it (`_synthetic_config`).
 It is the only place those config values are overridden, and they are restored afterwards.
+Chapter 2 (`chapter2.py`) needs a longer span (a year to train, a validation year, a judging
+period): it gets its own SPY-only synthetic set over 2016-2020 and its own overrides
+(`SYNTHETIC_CH2_OVERRIDES`).
 """
 
 import json
@@ -27,6 +30,7 @@ from mlflow.tracking import MlflowClient
 
 from first_half_hour import (
     calendar,
+    chapter2,
     config,
     controls,
     oos,
@@ -53,11 +57,21 @@ SYNTHETIC_OVERRIDES = {
 }
 """Synthetic analogues: OVERLAP = 1.5 years (past the 252-session tercile warm-up), POST = Aug 2019 on."""
 
+SYNTHETIC_CH2_OVERRIDES = {
+    "DATA_START": date(2016, 1, 1),
+    "DATA_END": date(2020, 12, 31),
+    "CH2_FIRST_TEST_YEAR": 2017,
+    "CH2_VALID": (date(2018, 1, 1), date(2018, 12, 31)),
+    "CH2_JUDGE": (date(2019, 1, 2), date(2020, 12, 31)),
+    "CH2_SPA_REPS": 100,
+}
+"""Chapter 2, synthetic: train on 2016, forecast 2017 (untuned), validate on 2018, judge 2019-20."""
+
 
 @contextmanager
-def _synthetic_config():
-    saved = {k: getattr(config, k) for k in SYNTHETIC_OVERRIDES}
-    for k, v in SYNTHETIC_OVERRIDES.items():
+def _synthetic_config(overrides: dict = SYNTHETIC_OVERRIDES):
+    saved = {k: getattr(config, k) for k in overrides}
+    for k, v in overrides.items():
         setattr(config, k, v)
     try:
         yield
@@ -66,11 +80,11 @@ def _synthetic_config():
             setattr(config, k, v)
 
 
-def _write_stub_daily(daily: Path) -> None:
+def _write_stub_daily(daily: Path, first_day: date = date(2017, 12, 1)) -> None:
     """Stub daily files in the formats the real loaders read (see private/DATA.md)."""
     daily.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(SYNTHETIC_SEED)
-    days = pl.date_range(date(2017, 12, 1), date(2020, 12, 31), "1d", eager=True)
+    days = pl.date_range(first_day, date(2020, 12, 31), "1d", eager=True)
     days = days.filter(days.dt.weekday() <= 5)
     for name, base in (("VIXCLS", 15.0), ("VXVCLS", 18.0)):
         vals = base + np.cumsum(rng.normal(0, 0.2, days.len())) * 0.1
@@ -248,15 +262,21 @@ def _run(data: Path, daily: Path, out: Path, synth: bool, reps: int) -> dict:
     return {"parents": log.parents, "children": log.children}
 
 
-def reproduce(data: Path, daily: Path, out: Path, synth: bool = False) -> str:
-    """Run chapter 1 end to end and return the count line (also asserts it against MLflow)."""
-    out = out.resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    # A local SQLite tracking store (MLflow's file store is deprecated).
+def _start_store(out: Path, experiment: str, artifacts: bool = False) -> int:
+    """Point MLflow at `<out>/mlruns.db` (a local SQLite store; the file store is deprecated),
+    select `experiment` and return the start time (ms) used to count only this run's runs.
+    `artifacts`: keep model artifacts under `<out>/mlartifacts`, not in the working directory."""
     out.mkdir(parents=True, exist_ok=True)
     mlflow.set_tracking_uri(f"sqlite:///{(out / 'mlruns.db').resolve()}")
-    mlflow.set_experiment("chapter1-synthetic" if synth else "chapter1")
-    started_ms = int(time.time() * 1000)
+    if artifacts and mlflow.get_experiment_by_name(experiment) is None:
+        mlflow.create_experiment(experiment, artifact_location=(out / "mlartifacts").as_uri())
+    mlflow.set_experiment(experiment)
+    return int(time.time() * 1000)
+
+
+def _chapter1(data: Path, daily: Path, out: Path, synth: bool) -> str:
+    name = "chapter1-synthetic" if synth else "chapter1"
+    started_ms = _start_store(out, name)
     if synth:
         with tempfile.TemporaryDirectory() as tmp, _synthetic_config():
             root = Path(tmp)
@@ -271,7 +291,7 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False) -> str:
         ids = _run(data, daily, out, False, config.BOOTSTRAP_REPS)
     n_parent, n_child = len(ids["parents"]), len(ids["children"])
     assert n_parent == 9, f"expected 9 item runs, made {n_parent}"
-    exp = mlflow.get_experiment_by_name("chapter1-synthetic" if synth else "chapter1")
+    exp = mlflow.get_experiment_by_name(name)
     found = MlflowClient().search_runs(
         [exp.experiment_id],
         filter_string=f"attributes.start_time >= {started_ms}",
@@ -283,3 +303,30 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False) -> str:
     count_line = f"chapter 1: {n_parent} items, {n_parent + n_child} runs ({n_child} nested)"
     report.write_chapter1_report(out, count_line)
     return count_line
+
+
+def _chapter2(data: Path, daily: Path, out: Path, synth: bool) -> str:
+    _start_store(out, "chapter2-synthetic" if synth else "chapter2", artifacts=True)
+    if synth:
+        with tempfile.TemporaryDirectory() as tmp, _synthetic_config(SYNTHETIC_CH2_OVERRIDES):
+            root = Path(tmp)
+            synthetic.write_synthetic(
+                root / "raw", ["SPY"], date(2016, 1, 4), date(2020, 12, 31),
+                SYNTHETIC_BETA, SYNTHETIC_SEED,
+            )  # fmt: skip
+            _write_stub_daily(root / "daily", date(2015, 11, 1))
+            return chapter2.run(root / "raw", root / "daily", out, True, SYNTHETIC_REPS)
+    return chapter2.run(data, daily, out, False, config.BOOTSTRAP_REPS)
+
+
+def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: str = "all") -> str:
+    """Run chapter 1 and/or 2 end to end; return the count line(s), asserted against MLflow."""
+    assert chapter in ("1", "2", "all"), f"chapter must be 1, 2 or all, got {chapter!r}"
+    out = out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    lines = []
+    if chapter in ("1", "all"):
+        lines.append(_chapter1(data, daily, out, synth))
+    if chapter in ("2", "all"):
+        lines.append(_chapter2(data, daily, out, synth))
+    return "\n".join(lines)

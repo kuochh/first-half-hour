@@ -1,5 +1,9 @@
 """Self-contained HTML pages for chapter 1: a table per analysis item, baselines beside the numbers.
 
+This module is also the shared renderer: chapter 2's page (`report_ch2.py`) reuses its CSS, cell
+formatters, table builders and label machinery; the chapter-2 headers and labels sit in the same
+tables below.
+
 Reads `<out>/chapter1/item1..9.parquet`, `<out>/chapter1_summary.json` and the rolling-slope
 figure; writes `<out>/chapter1_report.html` (English) and `<out>/chapter1_report_zh.html`
 (Taiwan Traditional Chinese). Inline CSS, the figure embedded as base64, no JS, no external
@@ -45,7 +49,10 @@ REG = [
 ]
 
 # Columns whose cells are code labels; the Chinese page maps them through LABELS_ZH.
-LABEL_COLS = ("sample", "variant", "spec", "term", "se_kind", "rule", "group", "note", "unit")
+LABEL_COLS = (
+    "sample", "variant", "spec", "term", "se_kind", "rule", "group", "note", "unit",
+    "model", "target", "feature", "window", "what",
+)  # fmt: skip
 
 HEADERS_ZH = {
     "sample": "樣本",
@@ -89,7 +96,44 @@ HEADERS_ZH = {
     "baseline_hit": "基準猜對率",
     "break_even_bp": "損益兩平成本（bp）",
     "note": "備註",
+    # chapter 2
+    "model": "預測方法",
+    "target": "目標",
+    "feature": "特徵",
+    "window": "期間",
+    "start": "起",
+    "end": "迄",
+    "year": "年",
+    "n": "天數",
+    "brier": "Brier 分數",
+    "bss_base": "BSS（對比基準率）",
+    "bss_cal": "BSS（對比校準公式）",
+    "val_bss_cal": "驗證期 BSS（對比校準公式）",
+    "log_loss": "對數損失",
+    "log_loss_base": "基準率的對數損失",
+    "log_loss_cal": "校準公式的對數損失",
+    "pr_auc": "PR-AUC",
+    "prevalence": "實際發生率（PR-AUC 的無技能值）",
+    "roc_auc": "ROC-AUC",
+    "roc_auc_null": "ROC-AUC 無技能值",
+    "n_days": "天數",
+    "n_traded": "有交易的天數",
+    "mean": "平均每日淨報酬",
+    "importance": "重要度（打亂後 Brier 增加量）",
+    "std": "標準差",
+    "n_years_positive": "重要度為正的年數",
+    "what": "項目",
+    "count": "數量",
+    "n_trials": "試驗數 N",
+    "sharpe_daily": "每日 Sharpe",
+    "sr0_daily": "門檻 SR0（每日）",
+    "dsr": "Deflated Sharpe",
 }
+
+FILL_NOTE = (
+    "A limit order is assumed filled on a touch, and entry at the 10:00 price assumes zero "
+    "latency; both flatter every forecast equally."
+)
 
 LABELS_ZH = {
     "sample": {
@@ -178,10 +222,69 @@ LABELS_ZH = {
         "two_signal": "兩個訊號（第一個與倒數第二個半小時）",
         "zero": "不交易（零）",
     },
+    "model": {
+        "base_rate": "基準率（永遠猜歷史平均）",
+        "formula_raw": "波動公式（未校準）",
+        "formula_cal": "波動公式（已校準）",
+        "gao_r1": "Gao 訊號（只用第一個半小時報酬）",
+        "tier:logit": "羅吉斯迴歸（調整後）",
+        "tier:enet": "彈性網路（調整後）",
+        "tier:hgb": "梯度提升樹 HGB（調整後）",
+        "always_buy": "每天都買（同樣的出場規則）",
+        "zero": "不交易（零）",
+    },
+    "target": {
+        "up_0.4": "之後再漲 0.4%（主要目標）",
+        "up_0.2": "之後再漲 0.2%（描述用）",
+        "up_0.6": "之後再漲 0.6%（描述用）",
+        "down_0.4": "之後再跌 0.4%（描述用）",
+    },
+    "window": {"valid": "驗證期", "judge": "評斷期"},
+    "feature": {
+        "r_on": "隔夜報酬",
+        "r_fh": "開盤半小時報酬",
+        "abs_r_on": "隔夜報酬的絕對值",
+        "abs_r_fh": "開盤半小時報酬的絕對值",
+        "sigma": "開盤半小時波動 σ",
+        "or_high": "開盤半小時最高點（相對 10:00 價）",
+        "or_low": "開盤半小時最低點（相對 10:00 價）",
+        "relvol": "相對成交量",
+        "rv_day_lag": "前一日波動",
+        "ret_prev": "前一日報酬",
+        "vix_lag": "前一日 VIX",
+        "vix_ratio_lag": "前一日 VIX 對三個月 VIX 的比值",
+        "fomc": "聯準會利率決策日",
+        "cpi": "CPI 公布日",
+        "payroll": "非農就業公布日",
+        "opex_monthly": "每月期權到期日",
+        "opex_quarterly": "季度期權到期日",
+        "daily_expiry_era": "每日到期期權時期",
+        "dow_tue": "星期二",
+        "dow_wed": "星期三",
+        "dow_thu": "星期四",
+        "dow_fri": "星期五",
+        "is_half_day": "半天交易日",
+        "z": "公式的 z 值",
+    },
+    "what": {
+        "runs": "MLflow 執行次數（含母執行）",
+        "targets": "目標數（1 個主要、3 個描述用）",
+        "models_primary": "主要目標的預測方法數",
+        "configs": "固定設定數（3 層共 18 組）",
+        "thresholds": "交易門檻候選數",
+        "costs": "成本情境數",
+        "trials": "Deflated Sharpe 的試驗數 N",
+        "spa_models": "SPA 比較的預測方法數",
+        "test_years": "walk-forward 測試年數",
+    },
     "group": {"equity": "股票型", "non_equity": "非股票型"},
     "unit": {"bp": "bp", "slope": "斜率"},
     "note": {
         "no break-even: gross mean <= 0": "沒有損益兩平點：未扣成本的平均報酬 ≤ 0",
+        FILL_NOTE: (
+            "假設限價單一碰到價格就成交，且 10:00 的價格能立刻買到（零延遲）；"
+            "這兩個假設會同樣美化每一種預測。"
+        ),
         "Sharpe difference, paired bootstrap CI; the skill comparison. "
         "H5's own CI excludes 0 because of costs, not because of skill.": (
             "Sharpe 的差額，用配對 bootstrap 求區間；這是真正比較技能的地方。"
@@ -417,6 +520,24 @@ TEXT = {
 }
 
 
+TIER_ZH = {"logit": "羅吉斯迴歸", "enet": "彈性網路", "hgb": "梯度提升樹 HGB"}
+PARAM_ZH = {
+    "C": "正則化強度 C", "l1_ratio": "L1 比例", "learning_rate": "學習率", "max_depth": "最大深度",
+    "max_iter": "樹的棵數",
+}  # fmt: skip
+
+
+def _cfg_zh(name: str) -> str:
+    """'cfg:enet:C=0.1,l1_ratio=0.5' -> a Chinese description; unknown tiers or parameters fail."""
+    _, tier, params = name.split(":")
+    assert tier in TIER_ZH, f"no Chinese label for configuration {name!r}"
+    if params == "none":
+        return f"{TIER_ZH[tier]}（固定設定）"
+    kv = [p.split("=") for p in params.split(",")]
+    assert all(k in PARAM_ZH for k, _ in kv), f"no Chinese label for parameters in {name!r}"
+    return f"{TIER_ZH[tier]}（" + "，".join(f"{PARAM_ZH[k]} {v}" for k, v in kv) + "）"
+
+
 def _label(lang: str, col: str, v):
     """Chinese label for a code cell; fails loud when a code has no translation."""
     if lang == "en" or v is None or col not in LABEL_COLS:
@@ -425,6 +546,10 @@ def _label(lang: str, col: str, v):
     table = LABELS_ZH[kind]
     if kind == "variant" and (m := VARIANT_BREAK.fullmatch(v)):
         return f"{m.group(1)} 斷點（此日之後）"
+    if kind == "model" and v.startswith("cfg:"):
+        return _cfg_zh(v)
+    if kind == "feature" and v.startswith("[group]"):
+        return "波動類特徵（一起打亂）"
     assert v in table, f"no Chinese label for {kind} {v!r}: add it to LABELS_ZH"
     return table[v]
 
@@ -512,33 +637,49 @@ T9_COLS = [
 ]  # fmt: skip
 
 
-def _timing_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
-    """Item 9: one-line rows. A sub-heading row opens each rule's block; a row's note becomes a
-    footnote marker in its break-even cell, the notes printed once under the table."""
+def _rule_table(
+    df: pl.DataFrame, cols: list[str], keys: tuple[str, ...], name, lang: str,
+    head_note=lambda rec: None,
+) -> str:  # fmt: skip
+    """One-line rows. A sub-heading row opens each block of equal `keys`, titled `name(rec)`; a
+    row's `note` becomes a footnote marker in its break-even cell, `head_note(rec)` one in the
+    sub-heading; the notes are printed once under the table."""
     notes: list[str] = []
-    head = "".join(f"<th>{escape(_head(lang, c))}</th>" for c in T9_COLS)
+
+    def mark(note: str | None) -> str:
+        if note is None:
+            return ""
+        if note not in notes:
+            notes.append(note)
+        return MARKS[notes.index(note)]
+
+    head = "".join(f"<th>{escape(_head(lang, c))}</th>" for c in cols)
     rows, prev = "", None
     for rec in df.iter_rows(named=True):
-        rule = rec["rule"]
-        if (rec["sample"], rule) != prev:
-            prev = (rec["sample"], rule)
-            name = RULE_EN[rule] if lang == "en" else _label(lang, "rule", rule)
-            rows += f'<tr><th colspan="{len(T9_COLS)}" class="sub">{escape(name)}</th></tr>'
-        mark = ""
-        if rec["note"] is not None:
-            if rec["note"] not in notes:
-                notes.append(rec["note"])
-            mark = MARKS[notes.index(rec["note"])]
+        if tuple(rec[k] for k in keys) != prev:
+            prev = tuple(rec[k] for k in keys)
+            title = escape(name(rec)) + mark(head_note(rec))
+            rows += f'<tr><th colspan="{len(cols)}" class="sub">{title}</th></tr>'
+        m = mark(rec["note"])
         cells = ""
-        for c in T9_COLS:
+        for c in cols:
             text = _fmt(_label(lang, c, rec[c]), c)
-            cells += f"<td>{text + mark if c == 'break_even_bp' else text}</td>"
+            cells += f"<td>{text + m if c == 'break_even_bp' else text}</td>"
         rows += f"<tr>{cells}</tr>"
     foot = "".join(
         f'<p class="fn">{MARKS[i]} {escape(_label(lang, "note", n))}</p>'
         for i, n in enumerate(notes)
     )
     return f"{SCROLL}<table><tr>{head}</tr>{rows}</table></div>{foot}"
+
+
+def _timing_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
+    """Item 9: a sub-heading per (sample, rule)."""
+    return _rule_table(
+        df, T9_COLS, ("sample", "rule"),
+        lambda rec: RULE_EN[rec["rule"]] if lang == "en" else _label(lang, "rule", rec["rule"]),
+        lang,
+    )  # fmt: skip
 
 
 def _panel_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
