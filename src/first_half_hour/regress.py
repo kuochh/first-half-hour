@@ -4,7 +4,9 @@ Every function takes the daily table (and for item 7 the controls) and returns a
 frame, one row per coefficient (or per Wald test), with the no-skill values beside it:
 baseline_coef = 0 (slope 0) and baseline_r2 = 0. OLS rows use Newey-West (HAC, Bartlett) errors
 with floor(4 (T/100)^(2/9)) lags, T being the rows of that regression; p-values are normal-based.
-RLM and QuantReg rows carry statsmodels' own standard errors (nw_lags and r2 are null there).
+Every row has `t` and `se_kind` ("nw", "bootstrap" or, in the panel, "cluster_date" and
+"driscoll_kraay"): a t is only comparable to another of the same kind. Huber and median rows use a
+stationary-bootstrap t (resampling (r1, r13) pairs jointly); nw_lags and r2 are null there.
 """
 
 import logging
@@ -15,6 +17,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 import statsmodels.api as sm
+from arch.bootstrap import StationaryBootstrap, optimal_block_length
+from scipy import stats
 
 from first_half_hour import config
 
@@ -22,7 +26,7 @@ log = logging.getLogger(__name__)
 
 SCHEMA: dict[str, pl.DataType] = {
     "item": pl.Int64, "sample": pl.String, "variant": pl.String, "term": pl.String,
-    "coef": pl.Float64, "nw_t": pl.Float64, "p": pl.Float64, "r2": pl.Float64, "T": pl.Int64,
+    "coef": pl.Float64, "t": pl.Float64, "se_kind": pl.String, "p": pl.Float64, "r2": pl.Float64, "T": pl.Int64,
     "nw_lags": pl.Int64, "chi2": pl.Float64, "n_dropped": pl.Int64, "note": pl.String,
     "baseline_coef": pl.Float64, "baseline_r2": pl.Float64,
 }  # fmt: skip
@@ -39,12 +43,32 @@ SINGLE_CONTROLS: dict[str, tuple[str, ...]] = {
 }  # fmt: skip
 
 
+QUARTERLY_NOTE = (
+    "SPY's 62 ex-dividend days are exactly the 62 quarterly expiry days "
+    "(3rd Friday of Mar/Jun/Sep/Dec, holiday-shifted)"
+)
+
+
 def _row(
-    item, sample, variant, term, *, coef, t, p, r2, n, lags, chi2=None, dropped=None, note=None
+    item,
+    sample,
+    variant,
+    term,
+    *,
+    coef,
+    t,
+    p,
+    r2,
+    n,
+    lags,
+    chi2=None,
+    dropped=None,
+    note=None,
+    se_kind="nw",
 ):
     return {
         "item": item, "sample": sample, "variant": variant, "term": term, "coef": coef,
-        "nw_t": t, "p": p, "r2": r2, "T": n, "nw_lags": lags, "chi2": chi2,
+        "t": t, "se_kind": se_kind, "p": p, "r2": r2, "T": n, "nw_lags": lags, "chi2": chi2,
         "n_dropped": dropped, "note": note, "baseline_coef": 0.0, "baseline_r2": 0.0,
     }  # fmt: skip
 
@@ -100,20 +124,39 @@ def item1(table: pl.DataFrame) -> pl.DataFrame:
 
 
 # ---------------------------------------------------------------- item 2
-def _single_rows(item, sample, variant, fit, n, names, r2=None, lags=None):
-    return [
-        _row(item, sample, variant, term, coef=float(fit.params[i + 1]),
-             t=float(fit.params[i + 1] / fit.bse[i + 1]), p=float(fit.pvalues[i + 1]), r2=r2,
-             n=n, lags=lags)
-        for i, term in enumerate(names)
-    ]  # fmt: skip
+def _bootstrap_row(sample, variant, y, x, estimator, reps):
+    """Slope of `estimator(y, x)` with a stationary-bootstrap t (resampling (r1, r13) rows jointly).
+
+    Block length: arch's optimal_block_length on the demeaned product r13*r1 (floored at 1);
+    fixed seed. t = slope / sd(bootstrap slopes); p is normal-based.
+    """
+    prod = (y - y.mean()) * (x - x.mean())
+    block = max(1.0, float(optimal_block_length(prod).to_numpy()[0, 0]))
+    bs = StationaryBootstrap(block, x, y, seed=config.BOOTSTRAP_SEED)
+    draws = bs.apply(lambda xx, yy: estimator(yy, xx), reps)[:, 0]
+    slope = float(estimator(y, x)[0])
+    t = slope / float(draws.std(ddof=1))
+    return _row(
+        2, sample, variant, "r1", coef=slope, t=t, p=float(2 * stats.norm.sf(abs(t))), r2=None,
+        n=y.size, lags=None, se_kind="bootstrap",
+        note=f"stationary bootstrap, {reps} reps, mean block {block:.2f}, seed {config.BOOTSTRAP_SEED}",
+    )  # fmt: skip
 
 
-def item2(table: pl.DataFrame, daily_dir: Path) -> pl.DataFrame:
+def _huber(y, x):
+    return sm.RLM(y, sm.add_constant(x), M=sm.robust.norms.HuberT()).fit().params[1:]
+
+
+def _median(y, x):
+    return sm.QuantReg(y, sm.add_constant(x)).fit(q=0.5).params[1:]
+
+
+def item2(table: pl.DataFrame, daily_dir: Path, reps: int = config.BOOTSTRAP_REPS) -> pl.DataFrame:
     """Robust variants of r13 ~ r1 per sample (Huber, median, trimmed, log, no half-days, no ex-div).
 
     The trimmed rows cut the largest |r1| (thresholds from that sample's own |r1| quantile): a
-    descriptive robustness row, not a forecast.
+    descriptive robustness row, not a forecast. Huber and median rows carry a stationary-bootstrap
+    t (`reps` replications; the count is in the row's note).
     """
     path = daily_dir / "spy_dividends.csv"
     assert path.exists(), f"missing dividends file {path}"
@@ -122,12 +165,9 @@ def item2(table: pl.DataFrame, daily_dir: Path) -> pl.DataFrame:
     rows = []
     for sample in config.SAMPLES:
         df = _in_sample(table, sample).drop_nulls(["r13", "r1"])
-        y, X = df["r13"].to_numpy(), df["r1"].to_numpy()[:, None]
-        Xc = sm.add_constant(X)
-        rlm = sm.RLM(y, Xc, M=sm.robust.norms.HuberT()).fit()
-        rows += _single_rows(2, sample, "huber", rlm, y.size, ["r1"])
-        qr = sm.QuantReg(y, Xc).fit(q=0.5)
-        rows += _single_rows(2, sample, "median", qr, y.size, ["r1"])
+        y, x = df["r13"].to_numpy(), df["r1"].to_numpy()
+        rows.append(_bootstrap_row(sample, "huber", y, x, _huber, reps))
+        rows.append(_bootstrap_row(sample, "median", y, x, _median, reps))
         absr1 = df["r1"].abs()
         for share in config.TRIM_SHARES:
             cut = absr1.quantile(1 - share, interpolation="linear")
@@ -139,7 +179,7 @@ def item2(table: pl.DataFrame, daily_dir: Path) -> pl.DataFrame:
         rows += _fit(2, sample, "no_half_days", df.filter(~pl.col("is_half_day")), "r13", ["r1"])
         exdiv = df.filter(pl.col("session").is_in(ex_dates.implode()))
         rows += _fit(2, sample, "no_ex_dividend", df.filter(~pl.col("session").is_in(ex_dates.implode())),
-                     "r13", ["r1"], note=f"{exdiv.height} ex-dividend sessions dropped")  # fmt: skip
+                     "r13", ["r1"], note=f"{exdiv.height} ex-dividend sessions dropped; {QUARTERLY_NOTE}")  # fmt: skip
     return _frame(rows)
 
 
@@ -148,23 +188,23 @@ def rolling_slope(table: pl.DataFrame) -> pl.DataFrame:
     """Rolling 252-session OLS slope of r13 ~ r1 on FULL, step 1, NW 95% band per window.
 
     Windows are 252 consecutive usable rows (non-null r1 and r13). Columns: end_session, slope,
-    se, lo, hi, nw_t, nw_lags, r2.
+    se, lo, hi, nw_t, nw_lags, r2, plus start_session (first session of the window).
     """
     df = _in_sample(table, "FULL").drop_nulls(["r13", "r1"])
     w = config.ROLLING_WINDOW
     assert df.height >= w, f"{df.height} usable rows, need {w}"
-    y_all, x_all, ends = df["r13"].to_numpy(), df["r1"].to_numpy(), df["session"].to_list()
+    y_all, x_all, days = df["r13"].to_numpy(), df["r1"].to_numpy(), df["session"].to_list()
     lags = config.nw_lags(w)
     out = []
     for end in range(w, df.height + 1):
         y, x = y_all[end - w : end], x_all[end - w : end]
         fit = sm.OLS(y, sm.add_constant(x)).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
         b, se = float(fit.params[1]), float(fit.bse[1])
-        out.append((ends[end - 1], b, se, b - 1.96 * se, b + 1.96 * se, b / se, lags,
+        out.append((days[end - w], days[end - 1], b, se, b - 1.96 * se, b + 1.96 * se, b / se, lags,
                     float(fit.rsquared)))  # fmt: skip
     return pl.DataFrame(
         out,
-        schema=["end_session", "slope", "se", "lo", "hi", "nw_t", "nw_lags", "r2"],
+        schema=["start_session", "end_session", "slope", "se", "lo", "hi", "nw_t", "nw_lags", "r2"],
         orient="row",
     )
 
@@ -179,12 +219,21 @@ def plot_rolling_slope(series: pl.DataFrame, path: Path, parquet_path: Path | No
                     label="Newey-West 95% band")  # fmt: skip
     ax.plot(x, series["slope"].to_numpy(), lw=1.2, label="rolling slope")
     ax.axhline(0.0, color="black", lw=0.8, label="no skill (slope 0)")
-    ax.axvline(config.BREAK_DATES[0], color="firebrick", ls="--", lw=1, label="2014-01-02")
-    ax.set_xlabel(f"window end ({config.ROLLING_WINDOW} sessions)")
+    brk = config.BREAK_DATES[0]
+    first_in = series.filter(pl.col("end_session") >= brk)["end_session"].min()
+    first_after = series.filter(pl.col("start_session") >= brk)["end_session"].min()
+    assert first_in is not None, "no window reaches the break date"
+    ax.axvline(brk, color="firebrick", ls="--", lw=1, label=f"{brk} (first window containing it)")
+    ax.axvspan(first_in, first_after or x[-1], color="firebrick", alpha=0.08,
+               label="windows straddling the date")  # fmt: skip
+    if first_after is not None:
+        ax.axvline(first_after, color="black", ls=":", lw=1, label="first window wholly after")
+    ax.set_xlabel(f"window ending on ({config.ROLLING_WINDOW}-session windows)")
+    fig.text(0.01, 0.01, "Bands are per window (95% each), not joint.", fontsize=7)
     ax.set_ylabel("slope of r13 on r1")
     ax.set_title("Rolling slope of the last half-hour return on the first-half-hour return")
     ax.legend(loc="upper right", fontsize=8)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
     fig.savefig(path, dpi=150)
     plt.close(fig)
     if parquet_path is not None:
@@ -197,7 +246,7 @@ def item4(table: pl.DataFrame) -> pl.DataFrame:
     """HAC Wald (Chow) tests of intercept and slope shifts on FULL.
 
     r13 ~ r1 + D + D*r1, D = session >= break date. Rows: D alone (intercept shift), D*r1 alone
-    (slope shift) and the joint test of both (term "D+D*r1", chi2 and p; coef/nw_t null).
+    (slope shift) and the joint test of both (term "D+D*r1", chi2 and p; coef/t null).
     """
     df = _in_sample(table, "FULL").drop_nulls(["r13", "r1"])
     y, r1 = df["r13"].to_numpy(), df["r1"].to_numpy()
@@ -247,12 +296,14 @@ def _prepare(df: pl.DataFrame, cols: Sequence[str]) -> tuple[pl.DataFrame, list[
     return out, keep
 
 
-def _run7(sample, usable, variant, data, cols, extra=(), reasons=""):
+def _run7(sample, usable, variant, data, cols, extra=(), reasons="", extra_note=""):
     """One item-7 regression of r13 on r1 and the prepared `cols` + `extra` columns."""
     data, keep = _prepare(data, [*cols, *extra]) if (cols or extra) else (data, [])
     gone = [c for c in [*cols, *extra] if c not in keep]
     reason = reasons if usable > data.height else ""
-    note = "; ".join(s for s in (reason, f"constant, dropped: {gone}" if gone else "") if s)
+    note = "; ".join(
+        s for s in (reason, f"constant, dropped: {gone}" if gone else "", extra_note) if s
+    )
     return _fit(
         7, sample, variant, data, "r13", ["r1", *keep],
         dropped=usable - data.height, note=note or None,
@@ -274,6 +325,7 @@ def item7(table: pl.DataFrame, ctrl: pl.DataFrame) -> pl.DataFrame:
     df_all = table.join(ctrl, on="session", how="left", validate="1:1", suffix="_ctrl")
     df_all = df_all.drop([c for c in df_all.columns if c.endswith("_ctrl")])
     all_cols = [c for cols in SINGLE_CONTROLS.values() for c in cols]
+    assert not any("div" in c for c in all_cols), "ex-dividend dummy beside the quarterly expiry"
     rows = []
     for sample in config.SAMPLES:
         df = _in_sample(df_all, sample).drop_nulls(["r13", "r1"])
@@ -287,9 +339,12 @@ def item7(table: pl.DataFrame, ctrl: pl.DataFrame) -> pl.DataFrame:
         for name, cols in SINGLE_CONTROLS.items():
             sub = df.drop_nulls(list(cols))
             rows += _run7(
-                sample, usable, f"+{name}", sub, list(cols), reasons="null in the control"
-            )
-        rows += _run7(sample, usable, "all", full, all_cols, reasons=reason)
+                sample, usable, f"+{name}", sub, list(cols), reasons="null in the control",
+                extra_note=QUARTERLY_NOTE if name == "opex_quarterly" else "",
+            )  # fmt: skip
+        rows += _run7(
+            sample, usable, "all", full, all_cols, reasons=reason, extra_note=QUARTERLY_NOTE
+        )
         for name, flag in (("rv_fh", "rv_fh_top"), ("relvol", "relvol_top")):
             sub = df.drop_nulls([flag])
             sub = sub.with_columns(inter=pl.col("r1") * pl.col(flag))

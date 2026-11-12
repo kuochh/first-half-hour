@@ -41,9 +41,9 @@ def _write_daily(path, vix_shift=0.0, after=None):
             f"{d},{v}\n" for d, v in zip(days, vals, strict=True)
         )
         (path / f"{name}.csv").write_text(text)
-    # 2019-01-29 Tue, 2019-03-19 Tue, 2019-06-14 Fri (announcement is the next session: Mon 17th)
+    # 2019-01-29 Tue, 2019-03-19 Tue, 2019-06-18 Tue: two-day meetings, announced the next day
     (path / "fomc_meetings.csv").write_text(
-        "date\n2018-06-12\n2019-01-29\n2019-03-19\n2019-06-14\n"
+        "date\n2018-06-12\n2019-01-29\n2019-03-19\n2019-06-18\n"
     )
     (path / "fomc_emergency.csv").write_text("date\n2019-03-04\n")
     (path / "fomc_cancelled.csv").write_text("date,cancelled_on\n2019-05-01,2019-04-20\n")
@@ -128,13 +128,13 @@ def test_relative_volume_uses_previous_20_kept_sessions(cal, daily):
 def test_event_flags_follow_the_calendar(cal, daily):
     out = controls.controls(_table(cal), cal, daily)
     on = lambda col: set(out.filter(pl.col(col))["session"].to_list())
-    # Meeting file lists the FIRST day; announcement is the next session (Fri 06-14 -> Mon 06-17).
+    # Meeting file lists the FIRST day; announcement is the next day (Tue 06-18 -> Wed 06-19).
     # The 2019-03-04 emergency date and the cancelled 2019-05-01 meeting are never flagged.
     assert on("fomc") == {
         date(2018, 6, 13),
         date(2019, 1, 30),
         date(2019, 3, 20),
-        date(2019, 6, 17),
+        date(2019, 6, 19),
     }
     # Good Friday 2019-04-19 was a market holiday: that CPI release maps to Monday 04-22.
     assert on("cpi") == {date(2019, 3, 12), date(2019, 4, 22)}
@@ -157,3 +157,24 @@ def test_expiry_month_end_and_era_flags(cal, daily):
     assert date(2019, 3, 28) not in on("month_end") and len(on("month_end")) == 24
     assert not on("daily_expiry_era")  # window ends before 2022-05-11
     assert on("is_half_day") == set(cal.filter(pl.col("is_half_day"))["session"].to_list())
+
+
+def test_one_day_fomc_meeting_is_flagged_on_its_own_date(cal, daily, monkeypatch):
+    # 2019-03-19 declared a one-day meeting: the statement came that afternoon, so the flag moves
+    # from Wed 03-20 (two-day rule) to Tue 03-19 itself. Other meetings are unchanged.
+    monkeypatch.setattr(config, "FOMC_ONE_DAY_MEETINGS", frozenset({date(2019, 3, 19)}))
+    out = controls.controls(_table(cal), cal, daily)
+    fomc = set(out.filter(pl.col("fomc"))["session"].to_list())
+    assert fomc == {date(2018, 6, 13), date(2019, 1, 30), date(2019, 3, 19), date(2019, 6, 19)}
+
+
+def test_fomc_assertions_fail_loud(cal, daily, tmp_path, monkeypatch):
+    # a one-day meeting named in config but absent from the file
+    monkeypatch.setattr(config, "FOMC_ONE_DAY_MEETINGS", frozenset({date(2019, 2, 5)}))
+    with pytest.raises(AssertionError, match="one-day FOMC meeting"):
+        controls.controls(_table(cal), cal, daily)
+    monkeypatch.setattr(config, "FOMC_ONE_DAY_MEETINGS", frozenset())
+    # a two-day meeting listed on a Friday would announce on Saturday: not a session
+    (daily / "fomc_meetings.csv").write_text("date\n2019-06-14\n")
+    with pytest.raises(AssertionError, match="not a session"):
+        controls.controls(_table(cal), cal, daily)

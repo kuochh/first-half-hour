@@ -116,8 +116,13 @@ class _Logger:
                 sample, variant, spec = rows(row)
                 with mlflow.start_run(run_name=f"{sample}|{variant}|{spec}", nested=True) as child:
                     self.children.append(child.info.run_id)
+                    texts = {  # string columns (se_kind, note, ...) are logged beside the metrics
+                        k: v
+                        for k, v in row.items()
+                        if isinstance(v, str) and k not in ("sample", "variant", "term", "group")
+                    }
                     mlflow.log_params(
-                        {"item": n, "sample": sample, "variant": variant, "spec": spec}
+                        {**texts, "item": n, "sample": sample, "variant": variant, "spec": spec}
                     )
                     metrics = {
                         _metric_name(k): float(v)
@@ -143,8 +148,9 @@ def _summary(t: dict[int, pl.DataFrame]) -> dict:
     h2 = _one(t[1], sample="POST", variant="r13~r1")
 
     def slope(r: dict) -> dict:
+        assert r["se_kind"] == "nw", "H1/H2 t must be Newey-West"
         return {
-            "slope": r["coef"], "nw_t": r["nw_t"], "p": r["p"], "r2": r["r2"], "T": r["T"],
+            "slope": r["coef"], "nw_t": r["t"], "t_kind": "Newey-West (HAC, Bartlett)", "p": r["p"], "r2": r["r2"], "T": r["T"],
             "baseline_slope": 0.0, "baseline_r2": 0.0,
         }  # fmt: skip
 
@@ -191,12 +197,13 @@ def _run(data: Path, daily: Path, out: Path, synth: bool, reps: int) -> dict:
     log.item(1, "baseline regressions", t[1], reg_rows, out, p0)
     if synth:
         r = _one(t[1], sample="OVERLAP", variant="r13~r1")
-        se = abs(r["coef"] / r["nw_t"])
+        assert r["se_kind"] == "nw"
+        se = abs(r["coef"] / r["t"])
         assert abs(r["coef"] - SYNTHETIC_BETA) < 4 * se, (
             f"planted slope {SYNTHETIC_BETA} not recovered: {r['coef']:.4f} +- {se:.4f}"
         )
-    t[2] = regress.item2(spy, daily)
-    log.item(2, "robust variants", t[2], reg_rows, out, p0)
+    t[2] = regress.item2(spy, daily, reps=reps)
+    log.item(2, "robust variants", t[2], reg_rows, out, {**p0, "bootstrap_reps": reps})
 
     t[3] = regress.rolling_slope(spy)
     regress.plot_rolling_slope(t[3], fig / "rolling_slope.png")
@@ -232,6 +239,7 @@ def _run(data: Path, daily: Path, out: Path, synth: bool, reps: int) -> dict:
 
     summary = {
         "synthetic": synth, "bootstrap_reps": reps,
+        "bootstrap_reps_note": "item 2 Huber/median t and item 9 Sharpe intervals use this many reps",
         "samples": {k: [v[0].isoformat(), v[1].isoformat()] for k, v in config.SAMPLES.items()},
         **_summary(t),
     }  # fmt: skip

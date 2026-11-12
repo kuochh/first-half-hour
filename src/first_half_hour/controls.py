@@ -153,8 +153,20 @@ def controls(table: pl.DataFrame, cal: pl.DataFrame, daily_dir: Path) -> pl.Data
     cancelled = _read_dates(daily_dir / "fomc_cancelled.csv")["date"]
     first, last = cal["session"].min(), cal["session"].max()
     meetings = meetings.filter(meetings.is_between(first, last))
-    # The announcement is the session after the (first) meeting day; it must be a session.
-    announce = _next_session_on_or_after(ext, meetings, strict=True)["news_session"]
+    # Two-day meetings (the file lists the first day) announce on the next day; the one-day
+    # meetings in config announce on the file date. The announcement must be a real session of the
+    # XNYS calendar (`ext`), checked against the calendar, not against a value derived from it.
+    one_day = meetings.is_in(list(config.FOMC_ONE_DAY_MEETINGS))
+    assert set(meetings.filter(one_day).to_list()) == {
+        d for d in config.FOMC_ONE_DAY_MEETINGS if first <= d <= last
+    }, "a one-day FOMC meeting in config is missing from the meetings file"
+    announce = (
+        pl.DataFrame({"m": meetings, "one": one_day})
+        .select(
+            a=pl.when(pl.col("one")).then(pl.col("m")).otherwise(pl.col("m") + pl.duration(days=1))
+        )
+        .to_series()
+    )
     assert announce.is_in(ext["session"].implode()).all(), "FOMC announcement is not a session"
     announce = announce.filter(announce <= last)
     # Emergency (unscheduled) and cancelled meetings are not known in advance: never flagged.

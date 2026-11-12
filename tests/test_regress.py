@@ -76,7 +76,7 @@ def test_item2_variants_and_the_missing_dividend_file(tmp_path):
         regress.item2(table, tmp_path)
     ex = table["session"][[100, 500, 900]].to_list()
     pl.DataFrame({"ex_date": ex, "amount": [0.5] * 3}).write_csv(tmp_path / "spy_dividends.csv")
-    out = regress.item2(table, tmp_path).filter(pl.col("sample") == "FULL")
+    out = regress.item2(table, tmp_path, reps=30).filter(pl.col("sample") == "FULL")
     full = table.filter(pl.col("session").is_between(*config.SAMPLES["FULL"]))
     by = {r["variant"]: r for r in out.iter_rows(named=True)}
     assert set(by) == {"huber", "median", "trim_top_1%", "trim_top_3%", "trim_top_5%",
@@ -153,3 +153,59 @@ def _fake_controls(table):
         rv_fh_cut=pl.lit(None, pl.Float64),
         relvol_cut=pl.lit(None, pl.Float64),
     )
+
+
+def test_huber_and_median_rows_use_a_bootstrap_t_not_the_default_se(tmp_path):
+    # AR(1) regressor and AR(1) errors: the default (iid) SE is far too small, so the default-SE
+    # t of a Huber fit is much larger than a dependence-robust one.
+    n = 1500
+    rng = np.random.default_rng(2)
+    x, e = np.zeros(n), np.zeros(n)
+    for i in range(1, n):
+        x[i], e[i] = 0.8 * x[i - 1] + rng.normal(0, 0.004), 0.8 * e[i - 1] + rng.normal(0, 0.002)
+    table = _table(0.0).head(n).with_columns(r1=pl.Series(x), r13=pl.Series(0.05 * x + e))
+    pl.DataFrame({"ex_date": [table["session"][5]], "amount": [0.5]}).write_csv(
+        tmp_path / "spy_dividends.csv"
+    )
+    out = regress.item2(table, tmp_path, reps=60).filter(pl.col("sample") == "FULL")
+    by = {r["variant"]: r for r in out.iter_rows(named=True)}
+    import statsmodels.api as sm
+
+    d = table.filter(pl.col("session").is_between(*config.SAMPLES["FULL"]))
+    X = sm.add_constant(d["r1"].to_numpy())
+    fit = sm.RLM(d["r13"].to_numpy(), X, M=sm.robust.norms.HuberT()).fit()
+    default_t = fit.params[1] / fit.bse[1]
+    for v in ("huber", "median"):
+        assert by[v]["se_kind"] == "bootstrap" and "60 reps" in by[v]["note"]
+    assert by["huber"]["coef"] == pytest.approx(fit.params[1], rel=1e-9)
+    assert abs(by["huber"]["t"]) < 0.6 * abs(default_t)
+    assert {by[v]["se_kind"] for v in by if v not in ("huber", "median")} == {"nw"}
+    assert "62 ex-dividend days" in by["no_ex_dividend"]["note"]
+
+
+def test_item7_quarterly_expiry_note_and_no_exdividend_dummy():
+    table = _table(0.3)
+    n = table.height
+    table = table.with_columns(
+        rv_fh=pl.Series(np.random.default_rng(3).uniform(1e-6, 1e-4, n)),
+        rv_day=pl.Series(np.random.default_rng(4).uniform(1e-5, 1e-3, n)),
+        vol_fh=pl.Series(np.random.default_rng(5).integers(1_000, 90_000, n)),
+    )
+    out = regress.item7(table, _fake_controls(table))
+    assert out["se_kind"].unique().to_list() == ["nw"]
+    for variant in ("+opex_quarterly", "all"):
+        notes = out.filter(pl.col("variant") == variant)["note"].drop_nulls().unique().to_list()
+        assert any(
+            "62 ex-dividend days are exactly the 62 quarterly expiry days" in x for x in notes
+        )
+    assert not any("div" in t for t in out["term"].unique().to_list())
+
+
+def test_rolling_slope_marks_straddling_windows_and_labels_the_axis(tmp_path):
+    roll = regress.rolling_slope(_table(0.3))
+    brk = config.BREAK_DATES[0]
+    assert (roll["start_session"] <= roll["end_session"]).all()
+    assert (roll["end_session"].is_sorted()) and roll["start_session"].is_sorted()
+    assert roll["start_session"][0] < brk < roll["end_session"].max()
+    regress.plot_rolling_slope(roll, tmp_path / "f.png")
+    assert (tmp_path / "f.png").stat().st_size > 5_000

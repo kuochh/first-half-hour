@@ -102,3 +102,11 @@ EQUITY_ETFS: tuple[str, ...] = (
 )
 NON_EQUITY_ETFS: tuple[str, ...] = ("TLT", "AGG", "BND", "HYG", "GLD")
 """Panel groups, reported separately: Holm is applied within each group."""
+
+FOMC_ONE_DAY_MEETINGS: frozenset[date] = frozenset(
+    {date(2011, 3, 15), date(2011, 8, 9), date(2011, 12, 13), date(2012, 3, 13)}
+)
+"""Scheduled FOMC meetings that lasted ONE day (statement the same afternoon), so the announcement
+session is the file date itself. Every other scheduled meeting in data/daily/fomc_meetings.csv is
+two-day and announces on the next session. Source: the Fed's historical meeting calendars,
+federalreserve.gov/monetarypolicy/fomchistorical2011.htm and ...2012.htm."""
