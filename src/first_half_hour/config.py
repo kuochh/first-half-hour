@@ -110,3 +110,14 @@ FOMC_ONE_DAY_MEETINGS: frozenset[date] = frozenset(
 session is the file date itself. Every other scheduled meeting in data/daily/fomc_meetings.csv is
 two-day and announces on the next session. Source: the Fed's historical meeting calendars,
 federalreserve.gov/monetarypolicy/fomchistorical2011.htm and ...2012.htm."""
+
+# Chapter 2, economics and interpretability (T3)
+TARGET_B: float = 0.004
+"""The further move before the close the trade targets: limit exit at P10 * (1 + b)."""
+TRADE_THRESHOLDS: tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7)
+"""Candidate probability thresholds; year Y's is picked on the same model's year Y-1 forecasts."""
+THRESHOLD_COST_BP: float = 1.0
+"""Cost per side at which the threshold is chosen."""
+PERMUTATION_REPEATS: int = 10
+PERMUTATION_SEED: int = 20260512
+"""Permutation-importance shuffles per feature and the fixed seed."""
