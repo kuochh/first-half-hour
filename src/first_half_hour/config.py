@@ -110,3 +110,26 @@ FOMC_ONE_DAY_MEETINGS: frozenset[date] = frozenset(
 session is the file date itself. Every other scheduled meeting in data/daily/fomc_meetings.csv is
 two-day and announces on the next session. Source: the Fed's historical meeting calendars,
 federalreserve.gov/monetarypolicy/fomchistorical2011.htm and ...2012.htm."""
+
+# Chapter 2 (target, features, baselines)
+TARGET_B: float = 0.004
+"""The further move: the day's later high reaches the 10:00 price times (1 + B) before the close."""
+DESCRIPTIVE_BS: tuple[float, ...] = (0.002, 0.006)
+"""Descriptive-only thresholds, run beside TARGET_B and counted as runs."""
+MIRROR_B: float = 0.004
+"""Threshold of the descriptive mirror target (a later low at or below P10 * (1 - MIRROR_B))."""
+TAU_MIN_REGULAR: int = 360
+TAU_MIN_HALF_DAY: int = 180
+"""Minutes from 10:00 to the close, regular and half-day sessions."""
+FIRST_HALF_HOUR_BARS: int = 30
+"""One-minute bars (hence returns) in 09:30-10:00; sigma = sqrt(rv_fh / FIRST_HALF_HOUR_BARS)."""
+PROB_CLIP_EPS: float = 1e-6
+"""Probabilities are clipped to [eps, 1 - eps] for log loss only."""
+
+FEATURE_COLUMNS: tuple[str, ...] = (
+    "r_on", "r_fh", "abs_r_on", "abs_r_fh", "sigma", "or_high", "or_low", "relvol",
+    "rv_day_lag", "ret_prev", "vix_lag", "vix_ratio_lag", "fomc", "cpi", "payroll",
+    "opex_monthly", "opex_quarterly", "daily_expiry_era", "dow_tue", "dow_wed", "dow_thu",
+    "dow_fri", "is_half_day", "month_end",
+)  # fmt: skip
+"""The chapter 2 feature list, all known by 10:00 (booleans enter as 0/1)."""
