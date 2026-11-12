@@ -4,6 +4,7 @@ Each month's forecasts come from an OLS fitted on every kept session from the st
 up to the end of the PREVIOUS month, so nothing from the forecast month or later enters.
 """
 
+import logging
 import math
 from datetime import date
 
@@ -12,6 +13,8 @@ import polars as pl
 import statsmodels.api as sm
 
 from first_half_hour import config
+
+log = logging.getLogger(__name__)
 
 SPECS: dict[str, tuple[str, ...]] = {
     "r13~r1": ("r1",),
@@ -32,6 +35,8 @@ def recursive_forecasts(
     start = start or config.SAMPLES["POST"][0]
     end = end or config.SAMPLES["POST"][1]
     d = table.select("session", "r1", "r12", "r13").drop_nulls().sort("session")
+    n_dropped_null = table.height - d.height
+    log.info("oos: %d rows dropped for a null r1/r12/r13", n_dropped_null)
     assert d["session"].is_unique().all(), "repeated sessions"
     month = d["session"].dt.truncate("1mo")
     sess = d["session"].to_numpy()
@@ -59,6 +64,7 @@ def recursive_forecasts(
                         "yhat": yhat,
                         "mean_fc": mean_fc,
                         "n_train": int(train.sum()),
+                        "n_dropped_null": n_dropped_null,
                     }
                 )
             )
@@ -95,6 +101,7 @@ def oos_summary(fc: pl.DataFrame) -> pl.DataFrame:
             {
                 "spec": spec,
                 "n_forecasts": g.height,
+                "n_dropped_null": int(g["n_dropped_null"][0]),
                 "first_session": g["session"].min(),
                 "last_session": g["session"].max(),
                 "r2_os_vs_mean": float(1 - sse / ((y - mu) ** 2).sum()),

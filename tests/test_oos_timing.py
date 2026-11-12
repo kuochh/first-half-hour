@@ -38,18 +38,31 @@ def test_forecasts_use_only_earlier_months():
     assert base.filter(july).drop("y").equals(got)
 
 
-def test_first_forecast_month_fit_on_earlier_data_only():
+def test_each_month_is_refit_on_all_earlier_data_only():
     t = _table()
-    fc = oos.recursive_forecasts(t).filter(
-        (pl.col("spec") == "r13~r1") & (pl.col("month") == date(2014, 1, 1))
+    all_fc = oos.recursive_forecasts(t)
+    # Two months: the later one must use a longer window (monthly refit, not a fixed window).
+    n_train = {}
+    for month in (date(2014, 1, 1), date(2015, 3, 1)):
+        fc = all_fc.filter((pl.col("spec") == "r13~r1") & (pl.col("month") == month))
+        past = t.filter(pl.col("session") < month)
+        assert fc["n_train"].unique().to_list() == [past.height]
+        n_train[month] = past.height
+        # Independent route: numpy least squares on the past rows only.
+        slope, icpt = np.polyfit(past["r1"].to_numpy(), past["r13"].to_numpy(), 1)
+        month_r1 = t.filter(pl.col("session").is_in(fc["session"].implode()))["r1"].to_numpy()
+        np.testing.assert_allclose(fc["yhat"].to_numpy(), icpt + slope * month_r1, rtol=1e-9)
+        assert np.allclose(fc["mean_fc"].to_numpy(), past["r13"].mean())
+    assert n_train[date(2015, 3, 1)] > n_train[date(2014, 1, 1)] + 300
+
+
+def test_null_rows_are_dropped_and_counted():
+    t = _table().with_columns(
+        r12=pl.when(pl.col("session") == date(2014, 5, 6)).then(None).otherwise(pl.col("r12"))
     )
-    past = t.filter(pl.col("session") < date(2014, 1, 1))
-    assert fc["n_train"].unique().to_list() == [past.height]
-    # Independent route: numpy least squares on the past rows only.
-    slope, icpt = np.polyfit(past["r1"].to_numpy(), past["r13"].to_numpy(), 1)
-    month_r1 = t.filter(pl.col("session").is_in(fc["session"].implode()))["r1"].to_numpy()
-    np.testing.assert_allclose(fc["yhat"].to_numpy(), icpt + slope * month_r1, rtol=1e-9)
-    assert np.allclose(fc["mean_fc"].to_numpy(), past["r13"].mean())
+    fc = oos.recursive_forecasts(t)
+    assert fc["n_dropped_null"].unique().to_list() == [1]
+    assert oos.oos_summary(fc)["n_dropped_null"].unique().to_list() == [1]
 
 
 def test_clark_west_hand_worked_case():
@@ -67,6 +80,75 @@ def test_oos_summary_r2_against_mean_and_zero():
     row = s.filter(pl.col("spec") == "r13~r1").row(0, named=True)
     assert row["r2_os_vs_mean"] > 0 and row["cw_p_vs_mean"] < 0.05  # planted slope is found
     assert row["baseline_r2"] == 0.0
+
+
+def test_r2_os_and_clark_west_benchmarks_hand_worked():
+    # One spec, 4 forecasts. y = [2,0,1,3], model yhat = [1,1,1,2], expanding mean mu = [1,1,2,2].
+    # SSE_model = 1+1+0+1 = 3. SSE_mean = (2-1)^2+(0-1)^2+(1-2)^2+(3-2)^2 = 4 -> R2 = 1-3/4 = 0.25.
+    # (Against the test-period mean 1.5 the SSE would be 5, giving 0.4: the look-ahead trap.)
+    # SSE_zero = 4+0+1+9 = 14 -> R2 = 1-3/14 = 11/14.
+    # CW f_t = (y-b)^2 - (y-yhat)^2 + (b-yhat)^2.
+    #   b = mu:   [1-1+0, 1-1+0, 1-0+1, 1-1+0] = [0, 0, 2, 0]  -> mean 0.5
+    #   b = zero: [4-1+1, 0-1+1, 1-0+1, 9-1+4] = [4, 0, 2, 12] -> mean 4.5
+    fc = pl.DataFrame(
+        {
+            "spec": "r13~r1",
+            "session": [date(2014, 1, d) for d in (2, 3, 6, 7)],
+            "y": [2.0, 0.0, 1.0, 3.0],
+            "yhat": [1.0, 1.0, 1.0, 2.0],
+            "mean_fc": [1.0, 1.0, 2.0, 2.0],
+            "n_dropped_null": 0,
+        }
+    )
+    row = oos.oos_summary(fc).row(0, named=True)
+    assert abs(row["r2_os_vs_mean"] - 0.25) < 1e-12
+    assert abs(row["r2_os_vs_zero"] - 11 / 14) < 1e-12
+    # Each CW statistic is the hand-worked f series pushed through the same HAC regression;
+    # t has the sign of mean(f) and the two benchmarks must give different statistics.
+    y, yh, mu = fc["y"].to_numpy(), fc["yhat"].to_numpy(), fc["mean_fc"].to_numpy()
+    lags = row["nw_lags"]
+    f_mean, f_zero = np.array([0, 0, 2.0, 0]), np.array([4, 0, 2.0, 12])
+    for key, f in (("cw_t_vs_mean", f_mean), ("cw_t_vs_zero", f_zero)):
+        # Bartlett long-run variance of the mean of f with `lags` lags (statsmodels uses the
+        # small-sample factor T/(T-1) for a constant-only HAC fit).
+        e = f - f.mean()
+        lrv = (e @ e) + 2 * sum((1 - k / (lags + 1)) * (e[k:] @ e[:-k]) for k in range(1, lags + 1))
+        se = np.sqrt(lrv) / len(f)
+        assert abs(row[key] - f.mean() / se) < 1e-9, key
+    assert abs(row["cw_t_vs_mean"] - row["cw_t_vs_zero"]) > 0.1
+    assert y.shape == yh.shape == mu.shape
+
+
+def test_sharpe_fixed_value_and_annualisation():
+    # r = [.0098, .0198, -.0302, .0048]: mean .00105; squared deviations from the mean sum to
+    # .00141875, so sd (ddof 1) = sqrt(.00141875/3) = .021747; Sharpe = .00105/.021747*sqrt(252)
+    # = 0.76647 (sqrt(365) would give 0.92245).
+    r = np.array([0.0098, 0.0198, -0.0302, 0.0048])
+    assert abs(timing.sharpe(r) - 0.766474) < 1e-5
+
+
+def test_sharpe_ci_width_matches_theory():
+    # iid normal daily returns, T = 4000, mean 0.0005, sd 0.01. The annualised Sharpe has
+    # se = sqrt(252/T) * sqrt(1 + SR_daily^2/2) = sqrt(0.063) * 1.001 = 0.2513, so the 95% interval
+    # is about 2 * 1.96 * 0.2513 = 0.985 wide. A widened (+-1) or a degenerate interval fails.
+    r = np.random.default_rng(3).normal(0.0005, 0.01, 4000)
+    lo, hi = timing.sharpe_ci(r, reps=1000)
+    assert lo < timing.sharpe(r) < hi
+    assert 0.8 < hi - lo < 1.2
+
+
+def test_paired_difference_uses_the_same_resampled_days():
+    # b = 0.5 * a has exactly the same Sharpe, so a paired bootstrap difference is 0 in every
+    # replication (an independent bootstrap of the two series would not be).
+    a = np.random.default_rng(4).normal(0.0004, 0.01, 500)
+    delta, lo, hi = timing.paired_sharpe_diff_ci(a, 0.5 * a, reps=200)
+    assert abs(delta) < 1e-12 and abs(lo) < 1e-9 and abs(hi) < 1e-9
+
+
+# Table below at 1 bp, 100 days (25 repeats of the 4-day block; sd uses ddof 1 so sumsq/99):
+# one-signal mean .00105, sumsq 25*.00141875 -> Sharpe .00105/sqrt(25*.00141875/99)*sqrt(252) = 0.88061
+# always-long mean .00605, sumsq 25*.00126875 -> Sharpe 5.36556; difference -4.48495.
+ONE1, LONG1 = 0.88061, 5.36556
 
 
 def _timing_table(rep=25):
@@ -105,6 +187,38 @@ def test_timing_pnl_with_costs_hand_worked():
     )
     assert abs(long0["mean"] - 0.00625) < 1e-12
     assert one["sharpe_ci_lo"] <= one["sharpe_ci_hi"]
+    assert abs(one["sharpe"] - ONE1) < 1e-4 and abs(one["sharpe_always_long"] - LONG1) < 1e-4
+    # Always-long net at 1 bp = [.0098,-.0202,.0298,.0048]: 3 of 4 days win, as for one-signal;
+    # on the two-signal active days 1, 2, 4 it wins 2 of 3.
+    assert one["baseline_hit"] == 0.75 and abs(two["baseline_hit"] - 2 / 3) < 1e-12
+    # Paired row: Sharpe difference = ONE1 - LONG1.
+    diff = res.filter(
+        (pl.col("rule") == "one_signal_minus_always_long") & (pl.col("cost_bp") == 1.0)
+    ).row(0, named=True)
+    assert abs(diff["sharpe"] - (ONE1 - LONG1)) < 1e-4
+    assert diff["sharpe_ci_lo"] <= diff["sharpe"] <= diff["sharpe_ci_hi"]
+    assert "costs" in diff["note"] and diff["n_dropped_null"] == 0
+
+
+def test_no_break_even_when_the_gross_mean_is_not_positive():
+    # r1 sign + + + -; r13 = -1%, -2%, -3%, +2%: one-signal gross P&L = [-.01,-.02,-.03,-.02] < 0.
+    t = _timing_table().with_columns(
+        r1=pl.Series([0.01, 0.01, 0.01, -0.01] * 25),
+        r13=pl.Series([-0.01, -0.02, -0.03, 0.02] * 25),
+    )
+    res = timing.timing_results(t, samples=("POST",), reps=20)
+    one = res.filter((pl.col("rule") == "one_signal") & (pl.col("cost_bp") == 0.0)).row(
+        0, named=True
+    )
+    assert one["break_even_bp"] is None and one["note"] == "no break-even: gross mean <= 0"
+
+
+def test_timing_counts_dropped_null_rows():
+    t = _timing_table().with_columns(
+        r1=pl.when(pl.col("session") == date(2014, 1, 2)).then(None).otherwise(pl.col("r1"))
+    )
+    res = timing.timing_results(t, samples=("POST",), reps=20)
+    assert res["n_dropped_null"].unique().to_list() == [1]
 
 
 def test_baselines_use_the_same_days():

@@ -108,3 +108,46 @@ def test_a_planted_slope_is_recovered(tmp_path, monkeypatch):
     se = synthetic.SD_R13_NOISE / (sd_r1 * math.sqrt(t.height))
     assert abs(fit.params[1] - beta) < 4 * se, (fit.params[1], 4 * se)
     assert abs(fit.params[0]) < 4 * synthetic.SD_R13_NOISE / math.sqrt(t.height)
+
+
+def _regular_day_rows(d, base, drop_open_bar=False):
+    """A regular session of bars; every price is `base` plus a fixed offset."""
+    rows = [(d, "09:30", base, base + 0.5), (d, "09:31", base + 0.5, base + 0.25)]
+    rows += [(d, "09:59", base + 0.25, base + 1)]
+    rows += [(d, t, base + 2 + i, base + 2 + i) for i, t in enumerate(("14:59", "15:29", "15:59"))]
+    return [r for r in rows if not (drop_open_bar and r[1] == "09:30")]
+
+
+def test_a_row_never_uses_later_sessions(tmp_path, monkeypatch):
+    # Mon 18 - Fri 22 Nov 2019. Wrecking every price of the sessions after Wed 20th must leave
+    # the rows for the 18th-20th bit-identical (r1 of the 20th uses only the 19th's close).
+    days = [date(2019, 11, d) for d in (18, 19, 20, 21, 22)]
+    cal = _use_window(monkeypatch, days[0], days[-1])
+    tables = []
+    for i, scale in enumerate((1.0, 3.7)):
+        rows = []
+        for j, d in enumerate(days):
+            base = 100.0 + 10 * j
+            rows += _regular_day_rows(d, base * (scale if j >= 3 else 1.0))
+        root = tmp_path / str(i)
+        synthetic.write_bars(root, "SPY", _bars(rows))
+        tables.append(returns.daily_table(root, "SPY", cal))
+    upto = pl.col("session") <= days[2]
+    assert tables[0].height == 5 and tables[0].filter(upto).equals(tables[1].filter(upto))
+    assert not tables[0].equals(tables[1])  # the perturbation did change the later rows
+
+
+def test_a_missing_opening_bar_nulls_the_overnight_split_but_keeps_r1(tmp_path, monkeypatch):
+    d18, d19 = date(2019, 11, 18), date(2019, 11, 19)
+    cal = _use_window(monkeypatch, d18, d19)
+    rows = _regular_day_rows(d18, 100.0) + _regular_day_rows(d19, 110.0, drop_open_bar=True)
+    synthetic.write_bars(tmp_path, "SPY", _bars(rows))
+    row = (
+        returns.daily_table(tmp_path, "SPY", cal)
+        .filter(pl.col("session") == d19)
+        .row(0, named=True)
+    )
+    # No 09:30 bar: p_open, r_on and r_fh are null, but r1 = 09:59 close / previous close - 1
+    # = 111 / 104 - 1 (18th closes at its 15:59 bar, 100 + 2 + 2 = 104; 19th's 09:59 close is 111).
+    assert row["p_open"] is None and row["r_on"] is None and row["r_fh"] is None
+    assert row["r1"] == pytest.approx(111 / 104 - 1)
