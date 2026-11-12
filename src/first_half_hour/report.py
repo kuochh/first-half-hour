@@ -26,7 +26,8 @@ td,th{border:1px solid #ddd;padding:3px 7px;text-align:right;white-space:nowrap}
 th{background:#f4f4f4}.box{background:#f7f9fc;border:1px solid #dde5f0;padding:8px 16px;
 border-radius:6px}.warn{color:#8a4b00}img{max-width:100%;height:auto}
 .wrap{white-space:normal;min-width:16em;text-align:left}
-th.g{text-align:center}
+th.g{text-align:center}th.sub{text-align:left;background:#eaeef5}
+.fn{font-size:13px;margin:2px 0}
 """
 
 REG = [
@@ -173,7 +174,7 @@ LABELS_ZH = {
     "rule": {
         "always_long": "一直做多",
         "one_signal": "單一訊號（只看第一個半小時）",
-        "one_signal_minus_always_long": "單一訊號減一直做多",
+        "one_signal_minus_always_long": "單一訊號比一直做多多出的 Sharpe",
         "two_signal": "兩個訊號（第一個與倒數第二個半小時）",
         "zero": "不交易（零）",
     },
@@ -206,17 +207,17 @@ TEXT = {
         "box": (
             "<ul>\n"
             "<li><b>H1</b> (2011-13 slope of last half-hour return on first half-hour return): "
-            "slope {h1_slope:.4g},\nNewey-West t {h1_t:.3g}, p {h1_p:.3g}, R2 {h1_r2:.3g}, "
+            "slope {h1_slope},\nNewey-West t {h1_t}, p {h1_p}, R2 {h1_r2}%, "
             "T {h1_T}. Baseline: slope 0, R2 0.</li>\n"
-            "<li><b>H2</b> (same slope, 2014-2026): slope {h2_slope:.4g}, t {h2_t:.3g}, "
-            "p {h2_p:.3g},\nR2 {h2_r2:.3g}, T {h2_T}. Baseline: slope 0, R2 0.</li>\n"
-            "<li><b>H3</b> (out-of-sample, {spec}): R2_OS vs the expanding mean {os_mean:.3g}, "
-            "vs zero\n{os_zero:.3g}, Clark-West p {cw_p:.3g}. Baseline R2_OS: 0.</li>\n"
+            "<li><b>H2</b> (same slope, 2014-2026): slope {h2_slope}, t {h2_t}, "
+            "p {h2_p},\nR2 {h2_r2}%, T {h2_T}. Baseline: slope 0, R2 0.</li>\n"
+            "<li><b>H3</b> (out-of-sample, {spec}): R2_OS vs the expanding mean {os_mean}%, "
+            "vs zero\n{os_zero}%, Clark-West p {cw_p}. Baseline R2_OS: 0.</li>\n"
             "<li><b>H4</b> (break at {break_date}, intercept and slope jointly): "
-            "chi2 {chi2:.3g},\np {h4_p:.3g}. Baseline: {h4_base}.</li>\n"
-            "<li><b>H5</b> (timing rule, {cost:g} bp per side): net Sharpe {sharpe:.3g},\n"
-            "95% CI [{ci_lo:.3g}, {ci_hi:.3g}]. Baselines: always-long Sharpe\n"
-            "{al:.3g}; zero (no trade) {zero:g}.</li>\n"
+            "chi2 {chi2},\np {h4_p}. Baseline: {h4_base}.</li>\n"
+            "<li><b>H5</b> (timing rule, {cost:g} bp per side): net Sharpe {sharpe},\n"
+            "95% CI [{ci_lo}, {ci_hi}]. Baselines: always-long Sharpe\n"
+            "{al}; zero (no trade) {zero:g}.</li>\n"
             "</ul>"
         ),
         "item": "Item {n}: {title}",
@@ -298,7 +299,7 @@ TEXT = {
             "against two baselines: always long (sharpe_always_long) and not trading at all "
             "(Sharpe 0, the zero rule). All five costs (0, 0.5, 1, 2 and 5 bp per side) are shown for each rule, "
             "2014-26 first. break_even_bp is the per-side cost at which the rule's mean return "
-            "reaches zero; it is blank, with a note, when the gross mean is already not "
+            "reaches zero; it is blank, with a footnote marker, when the gross mean is already not "
             "positive. Sharpe intervals are bootstrap intervals."
         ),
     },
@@ -315,25 +316,25 @@ TEXT = {
         "box": (
             "<ul>\n"
             "<li><b>H1</b>（2011–13 年，最後半小時報酬對第一個半小時報酬的斜率；斜率就是第一個"
-            "半小時每多漲 1，最後半小時平均多漲多少）：斜率 {h1_slope:.4g}，"
-            "Newey-West t 值 {h1_t:.3g}（t 值是估計值除以它的誤差，絕對值越大越不像巧合；"
+            "半小時每多漲 1，最後半小時平均多漲多少）：斜率 {h1_slope}，"
+            "Newey-West t 值 {h1_t}（t 值是估計值除以它的誤差，絕對值越大越不像巧合；"
             "Newey-West 是一種允許報酬前後相關、波動忽大忽小的誤差算法），"
-            "p 值 {h1_p:.3g}（p 值是「若真實斜率為 0，仍看到這麼極端結果」的機率），"
-            "R² {h1_r2:.3g}（R² 是模型解釋掉的變動占比），交易日數 T {h1_T}。"
+            "p 值 {h1_p}（p 值是「若真實斜率為 0，仍看到這麼極端結果」的機率），"
+            "R² {h1_r2}%（R² 是模型解釋掉的變動占比），交易日數 T {h1_T}。"
             "基準：斜率 0、R² 0。</li>\n"
-            "<li><b>H2</b>（同一個斜率，2014–2026 年）：斜率 {h2_slope:.4g}，t 值 {h2_t:.3g}，"
-            "p 值 {h2_p:.3g}，R² {h2_r2:.3g}，交易日數 T {h2_T}。基準：斜率 0、R² 0。</li>\n"
+            "<li><b>H2</b>（同一個斜率，2014–2026 年）：斜率 {h2_slope}，t 值 {h2_t}，"
+            "p 值 {h2_p}，R² {h2_r2}%，交易日數 T {h2_T}。基準：斜率 0、R² 0。</li>\n"
             "<li><b>H3</b>（樣本外預測，{spec}）：R²_OS（每月用截至上月底的資料重新估計一次，預測當月每一天，再和基準預測比"
-            "誤差，正數表示比基準好）對比擴張平均 {os_mean:.3g}，對比零預測 {os_zero:.3g}，"
-            "Clark-West p 值 {cw_p:.3g}（Clark-West 是檢定預測是否真的比基準好的方法）。"
+            "誤差，正數表示比基準好）對比擴張平均 {os_mean}%，對比零預測 {os_zero}%，"
+            "Clark-West p 值 {cw_p}（Clark-West 是檢定預測是否真的比基準好的方法）。"
             "基準 R²_OS：0。</li>\n"
             "<li><b>H4</b>（在 {break_date} 斷點，截距與斜率一起檢定；斷點檢定看這一天前後"
-            "關係有沒有變，這裡用 Wald 檢定，即檢查幾個係數是否同時為 0）：卡方值 {chi2:.3g}，"
-            "p 值 {h4_p:.3g}。基準：{h4_base}。</li>\n"
+            "關係有沒有變，這裡用 Wald 檢定，即檢查幾個係數是否同時為 0）：卡方值 {chi2}，"
+            "p 值 {h4_p}。基準：{h4_base}。</li>\n"
             "<li><b>H5</b>（擇時規則，單邊成本 {cost:g} bp；bp 即基點，1 bp = 0.01%）："
-            "扣成本後的 Sharpe {sharpe:.3g}（Sharpe 是平均報酬除以波動，再年化，衡量每單位風險"
-            "賺多少），95% 信賴區間 [{ci_lo:.3g}, {ci_hi:.3g}]（用 bootstrap 重抽，也就是把"
-            "資料反覆隨機重抽來估計不確定程度）。基準：一直做多的 Sharpe {al:.3g}；"
+            "扣成本後的 Sharpe {sharpe}（Sharpe 是平均報酬除以波動，再年化，衡量每單位風險"
+            "賺多少），95% 信賴區間 [{ci_lo}, {ci_hi}]（用 bootstrap 重抽，也就是把"
+            "資料反覆隨機重抽來估計不確定程度）。基準：一直做多的 Sharpe {al}；"
             "不交易（零）{zero:g}。</li>\n"
             "</ul>"
         ),
@@ -409,7 +410,7 @@ TEXT = {
             "在最後半小時，順著第一個半小時的方向交易，扣掉成本，並和兩個基準比：一直做多"
             "（「一直做多的 Sharpe」欄）以及完全不交易（Sharpe 0，也就是零規則）。每個規則都列出"
             "全部五種單邊成本（0、0.5、1、2、5 bp），先列 2014–26。損益兩平成本是讓該規則平均報酬"
-            "降到零的單邊成本；若未扣成本的平均報酬本來就不是正的，這格留空並附備註。Sharpe 的"
+            "降到零的單邊成本；若未扣成本的平均報酬本來就不是正的，這格留空，並以腳註標記說明。Sharpe 的"
             "區間是 bootstrap 重抽區間。"
         ),
     },
@@ -497,6 +498,49 @@ def _table(df: pl.DataFrame, cols: list[str], lang: str, bp: bool = False) -> st
     return f"{SCROLL}<table><tr>{head}</tr>{body}</table></div>"
 
 
+RULE_EN = {
+    "always_long": "always long",
+    "one_signal": "one signal (first half-hour only)",
+    "one_signal_minus_always_long": "one-signal Sharpe minus always-long Sharpe",
+    "two_signal": "two signals (first and 2nd-to-last)",
+    "zero": "no trade (zero)",
+}
+MARKS = "¹²³⁴⁵⁶⁷⁸⁹"
+T9_COLS = [
+    "sample", "cost_bp", "n_active", "sharpe", "sharpe_ci_lo", "sharpe_ci_hi",
+    "sharpe_always_long", "hit_rate", "baseline_hit", "break_even_bp",
+]  # fmt: skip
+
+
+def _timing_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
+    """Item 9: one-line rows. A sub-heading row opens each rule's block; a row's note becomes a
+    footnote marker in its break-even cell, the notes printed once under the table."""
+    notes: list[str] = []
+    head = "".join(f"<th>{escape(_head(lang, c))}</th>" for c in T9_COLS)
+    rows, prev = "", None
+    for rec in df.iter_rows(named=True):
+        rule = rec["rule"]
+        if (rec["sample"], rule) != prev:
+            prev = (rec["sample"], rule)
+            name = RULE_EN[rule] if lang == "en" else _label(lang, "rule", rule)
+            rows += f'<tr><th colspan="{len(T9_COLS)}" class="sub">{escape(name)}</th></tr>'
+        mark = ""
+        if rec["note"] is not None:
+            if rec["note"] not in notes:
+                notes.append(rec["note"])
+            mark = MARKS[notes.index(rec["note"])]
+        cells = ""
+        for c in T9_COLS:
+            text = _fmt(_label(lang, c, rec[c]), c)
+            cells += f"<td>{text + mark if c == 'break_even_bp' else text}</td>"
+        rows += f"<tr>{cells}</tr>"
+    foot = "".join(
+        f'<p class="fn">{MARKS[i]} {escape(_label(lang, "note", n))}</p>'
+        for i, n in enumerate(notes)
+    )
+    return f"{SCROLL}<table><tr>{head}</tr>{rows}</table></div>{foot}"
+
+
 def _panel_table(df: pl.DataFrame, lang: str, tx: dict) -> str:
     """Item 8: one row per ETF (pooled row last) per group, the three samples side by side."""
     sub = [("slope", "hd_slope"), ("t", None), ("p_holm", "hd_holm"), ("T", "hd_days")]
@@ -546,14 +590,18 @@ def _box(tx: dict, s: dict, count_line: str, lang: str) -> str:
     if lang == "zh":
         assert base in H4_BASELINE_ZH, f"no Chinese label for H4 baseline {base!r}"
         base = H4_BASELINE_ZH[base]
+    f = _fmt  # the same cell formatters as the tables (percent R2, 3-decimal slope, ...)
     box = tx["box"].format(
-        h1_slope=h1["slope"], h1_t=h1["nw_t"], h1_p=h1["p"], h1_r2=h1["r2"], h1_T=h1["T"],
-        h2_slope=h2["slope"], h2_t=h2["nw_t"], h2_p=h2["p"], h2_r2=h2["r2"], h2_T=h2["T"],
-        spec=escape(spec), os_mean=o["r2_os_vs_mean"], os_zero=o["r2_os_vs_zero"],
-        cw_p=o["cw_p_vs_mean"], break_date=escape(h4["break_date"]), chi2=h4["joint_chi2"],
-        h4_p=h4["joint_p"], h4_base=escape(base), cost=h5["cost_bp_per_side"],
-        sharpe=h5["sharpe_net"], ci_lo=h5["ci_lo"], ci_hi=h5["ci_hi"],
-        al=h5["baseline_always_long_sharpe"], zero=h5["baseline_zero_sharpe"],
+        h1_slope=f"{h1['slope']:.3f}", h1_t=f(h1["nw_t"], "t"), h1_p=f(h1["p"], "p"),
+        h1_r2=f(h1["r2"], "r2"), h1_T=h1["T"],
+        h2_slope=f"{h2['slope']:.3f}", h2_t=f(h2["nw_t"], "t"), h2_p=f(h2["p"], "p"),
+        h2_r2=f(h2["r2"], "r2"), h2_T=h2["T"],
+        spec=escape(spec), os_mean=f(o["r2_os_vs_mean"], "r2"), os_zero=f(o["r2_os_vs_zero"], "r2"),
+        cw_p=f(o["cw_p_vs_mean"], "p"), break_date=escape(h4["break_date"]),
+        chi2=f(h4["joint_chi2"], "t"), h4_p=f(h4["joint_p"], "p"), h4_base=escape(base),
+        cost=h5["cost_bp_per_side"], sharpe=f(h5["sharpe_net"], "sharpe"),
+        ci_lo=f(h5["ci_lo"], "sharpe"), ci_hi=f(h5["ci_hi"], "sharpe"),
+        al=f(h5["baseline_always_long_sharpe"], "sharpe"), zero=h5["baseline_zero_sharpe"],
     )  # fmt: skip
     return f'<div class="box">{tx["count"].format(count_line=escape(count_line))}{box}</div>'
 
@@ -658,23 +706,7 @@ def _render(lang: str, s: dict, t: dict, img: str, count_line: str) -> str:
             tx,
             9,
             tx["x9"],
-            tab(
-                t9,
-                [
-                    "sample",
-                    "rule",
-                    "cost_bp",
-                    "n_active",
-                    "sharpe",
-                    "sharpe_ci_lo",
-                    "sharpe_ci_hi",
-                    "sharpe_always_long",
-                    "hit_rate",
-                    "baseline_hit",
-                    "break_even_bp",
-                    "note",
-                ],
-            ),
+            _timing_table(t9, lang, tx),
         ),
     ]
     warn = tx["warn"].format(

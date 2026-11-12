@@ -71,6 +71,13 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     assert en_tables == zh_tables, "numbers differ between the English and Chinese reports"
     zh_cells = " ".join(CELL.findall(zh))
     assert not re.search(r"OVERLAP|POST|FULL|\bnw\b|cluster_date|driscoll_kraay", zh_cells)
+    for page in (html, zh):
+        box = page.split('<div class="box">')[1].split("</div>")[0]
+        assert not re.search(r"\d\.\d{4,}", box) and not SCI.search(box), "raw number in box"
+        t9 = page.split('<h2 id="item9">')[1]
+        assert "<th colspan=" in t9 and t9.count('class="sub"') >= 8, "no rule sub-headings"
+        assert max(len(c) for c in ANY_CELL.findall(t9)) <= 45, "long cell in item 9"
+        assert '<p class="fn">¹' in t9
     # every table sits in a horizontally scrolling box
     for page in (html, zh):
         assert page.count("<table>") == page.count('style="overflow-x:auto"><table>') >= 9
