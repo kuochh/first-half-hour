@@ -5,18 +5,23 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # the whole history: a file deleted later is still published
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v6
       - name: publishing guard over every tracked file
         run: uvx pre-commit@4.7.0 run --all-files
       - name: publishing guard over every commit
         run: uvx pre-commit@4.7.0 run history --hook-stage pre-push
       - name: secrets anywhere in the history
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The gitleaks CLI over every commit (the action scans only the pushed range, which fails
+        # on a first push).
+        run: |
+          v=8.30.0; f=gitleaks_${v}_linux_x64.tar.gz; cd "$RUNNER_TEMP"
+          curl -sSfL -o "$f" "https://github.com/gitleaks/gitleaks/releases/download/v${v}/${f}"
+          echo "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e  $f" | sha256sum -c -
+          tar -xzf "$f" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact -v --exit-code 1 "$GITHUB_WORKSPACE"
       - name: the guard must catch planted files
         # Each planted file must fail with its own hook's message; a command that cannot run at
         # all must not count as caught.
@@ -45,8 +50,8 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
       - run: uv run ruff check src tests scripts
       - run: uv run ruff format --check src tests scripts
