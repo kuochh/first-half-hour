@@ -140,3 +140,18 @@ _BASE_FEATURES: tuple[str, ...] = (
 )  # fmt: skip
 FEATURE_COLUMNS: tuple[str, ...] = _BASE_FEATURES + (("z",) if CH2_Z_FEATURE else ())
 """The chapter 2 feature list, all known by 10:00 (booleans enter as 0/1)."""
+
+# Chapter 2, economics and interpretability (T3)
+TARGET_B_BY_NAME: dict[str, float] = {"up_0.4": 0.004}
+"""Target name to its b; the economics code asserts the b it is given matches the target."""
+N_TRADED_FORECASTS: int = 4
+"""The three tuned tiers and the calibrated formula."""
+TRADE_THRESHOLDS: tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7)
+"""Candidate probability thresholds; year Y's is picked on the same model's year Y-1 forecasts."""
+N_TRIALS: int = 20
+"""Deflated-Sharpe trial count: 5 thresholds x 4 traded forecasts (fixed; asserted in trial_set)."""
+THRESHOLD_COST_BP: float = 1.0
+"""Cost per side at which the threshold is chosen."""
+PERMUTATION_REPEATS: int = 10
+PERMUTATION_SEED: int = 20260512
+"""Permutation-importance shuffles per feature and the fixed seed."""
