@@ -5,6 +5,7 @@ All of it reads the long `forecasts` frame (session, year, target, y, model, p).
 """
 
 from datetime import date
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -52,6 +53,9 @@ def _metrics(win: pl.DataFrame) -> pl.DataFrame:
     y, ps = _aligned(win)
     assert 0 < y.sum() < len(y), "window holds one class only; AUCs undefined"
     b_base, b_cal = brier(y, ps["base_rate"]), brier(y, ps["formula_cal"])
+    clip = config.PROB_CLIP_EPS
+    ll_base = float(log_loss(y, np.clip(ps["base_rate"], clip, 1 - clip)))
+    ll_cal = float(log_loss(y, np.clip(ps["formula_cal"], clip, 1 - clip)))
     rows = []
     for m, p in ps.items():
         b = brier(y, p)
@@ -62,12 +66,13 @@ def _metrics(win: pl.DataFrame) -> pl.DataFrame:
                 "brier": b,
                 "bss_base": 1 - b / b_base,
                 "bss_cal": 1 - b / b_cal,
-                "log_loss": float(
-                    log_loss(y, np.clip(p, config.CH2_PROB_CLIP, 1 - config.CH2_PROB_CLIP))
-                ),
+                "log_loss": float(log_loss(y, np.clip(p, clip, 1 - clip))),
+                "log_loss_base": ll_base,
+                "log_loss_cal": ll_cal,
                 "pr_auc": float(average_precision_score(y, p)),
                 "prevalence": float(y.mean()),
                 "roc_auc": float(roc_auc_score(y, p)),
+                "roc_auc_null": 0.5,
             }
         )
     return pl.DataFrame(rows)
@@ -135,6 +140,7 @@ def primary_criterion(fc: pl.DataFrame, chosen: str, target: str = PRIMARY_TARGE
     y, ps = _aligned(win)
     p_cal, p_tier = ps["formula_cal"], ps[f"tier:{chosen}"]
     dm = dm_test((p_cal - y) ** 2 - (p_tier - y) ** 2)
+    assert np.isfinite(dm["t"]), "DM t is not finite (zero-variance loss difference?)"
     bss = 1 - brier(y, p_tier) / brier(y, p_cal)
     return {
         "chosen": chosen,
@@ -177,10 +183,14 @@ def spa_test(fc: pl.DataFrame, target: str = PRIMARY_TARGET) -> dict:
         seed=config.CH2_SPA_SEED,
     )
     spa.compute()
-    return {"p_consistent": float(spa.pvalues["consistent"]), "n_models": len(others)}
+    return {
+        "benchmark": "formula_cal",
+        "p_consistent": float(spa.pvalues["consistent"]),
+        "n_models": len(others),
+    }
 
 
-def summary(fc: pl.DataFrame, target: str = PRIMARY_TARGET) -> dict:
+def summary(fc: pl.DataFrame, sel: pl.DataFrame, target: str = PRIMARY_TARGET) -> dict:
     """The primary result with its baselines (json-ready); the caller adds economics and counts."""
     chosen, val = choose_tier(fc, target)
     keep = [
@@ -202,31 +212,112 @@ def summary(fc: pl.DataFrame, target: str = PRIMARY_TARGET) -> dict:
             pl.col("model").is_in(keep)).to_dicts(),
         "primary": primary_criterion(fc, chosen, target),
         "spa": spa_test(fc, target),
+        "tier_configs": sel.filter(pl.col("target") == target).sort("year", "tier").to_dicts(),
     }  # fmt: skip
 
 
-def log_runs(
-    metrics: pl.DataFrame, target: str, experiment_parent: str = "chapter2"
-) -> tuple[int, int]:
-    """One MLflow child run per model row (its metrics) under the open-or-new parent run.
-
-    Returns (parents, children) created and asserts them against MLflow.
+def write_forecasts(fc: pl.DataFrame, sel: pl.DataFrame, out: Path) -> tuple[Path, Path]:
+    """Write `forecasts.parquet` (the spec's interface) and `tier_configs.parquet` (the tuned
+    configuration per target, year and tier) into `out`. Asserts the schema and the model sets:
+    the primary target 4 + 18 + 3 = 25 models, a descriptive target 4 + its tier's configurations + 1.
     """
-    with mlflow.start_run(run_name=f"{experiment_parent}|{target}") as parent:
-        mlflow.log_param("target", target)
-        for row in metrics.iter_rows(named=True):
-            with mlflow.start_run(run_name=f"{target}|{row['model']}", nested=True):
-                mlflow.log_param("model", row["model"])
-                mlflow.log_metrics(
-                    {k: float(v) for k, v in row.items() if isinstance(v, int | float)}
-                )
-        found = MlflowClient().search_runs(
-            [parent.info.experiment_id],
-            filter_string=f"tags.mlflow.parentRunId = '{parent.info.run_id}'",
-            max_results=50_000,
+    schema = {
+        "session": pl.Date, "year": pl.Int32, "target": pl.Utf8, "y": pl.Int8,
+        "model": pl.Utf8, "p": pl.Float64,
+    }  # fmt: skip
+    assert dict(fc.schema) == schema, f"forecasts schema {dict(fc.schema)}"
+    assert fc.group_by("session", "target", "model").len()["len"].max() == 1
+    assert fc["p"].is_finite().all() and fc["p"].is_between(0, 1).all()
+    assert PRIMARY_TARGET in fc["target"].unique().to_list(), "no primary target"
+    for tgt in fc["target"].unique().to_list():
+        models = set(fc.filter(pl.col("target") == tgt)["model"].unique())
+        tiers = tuple(t for t in config.CH2_TIERS if f"tier:{t}" in models)
+        assert tiers, f"{tgt}: no tuned tier"
+        assert len(tiers) == (len(config.CH2_TIERS) if tgt == PRIMARY_TARGET else 1), (tgt, tiers)
+        assert models == walkforward.expected_models(tiers), f"{tgt}: unexpected model set"
+    assert {"year", "tier", "model", "target"} <= set(sel.columns)
+    out.mkdir(parents=True, exist_ok=True)
+    fc_path, sel_path = out / "forecasts.parquet", out / "tier_configs.parquet"
+    fc.sort("target", "model", "session").write_parquet(fc_path)
+    sel.sort("target", "year", "tier").write_parquet(sel_path)
+    return fc_path, sel_path
+
+
+def log_runs(metrics: pl.DataFrame, target: str, sel: pl.DataFrame | None = None) -> int:
+    """One nested MLflow child run per model row, under the open parent run "chapter2".
+
+    Returns the number of children logged by this call (asserted against MLflow). A tuned-tier
+    child also logs its configuration per year (from `sel`). The caller (T4) adds the parent run
+    and the count line.
+    """
+    parent = mlflow.active_run()
+    assert parent is not None and parent.data.tags.get("mlflow.runName") == "chapter2", (
+        "log_runs needs the open parent run 'chapter2'"
+    )
+    client = MlflowClient()
+
+    def nested() -> int:
+        return len(
+            client.search_runs(
+                [parent.info.experiment_id],
+                filter_string=f"tags.mlflow.parentRunId = '{parent.info.run_id}'",
+                max_results=50_000,
+            )
         )
-    assert len(found) == metrics.height, f"MLflow holds {len(found)}, logged {metrics.height}"
-    return 1, metrics.height
+
+    before = nested()
+    for row in metrics.iter_rows(named=True):
+        with mlflow.start_run(run_name=f"{target}|{row['model']}", nested=True):
+            mlflow.log_params({"target": target, "model": row["model"]})
+            mlflow.log_metrics({k: float(v) for k, v in row.items() if isinstance(v, int | float)})
+            if sel is not None and row["model"].startswith("tier:"):
+                tier = row["model"].removeprefix("tier:")
+                chosen = sel.filter((pl.col("target") == target) & (pl.col("tier") == tier))
+                mlflow.log_param(
+                    "configuration_by_year",
+                    "; ".join(f"{r['year']}: {r['model']}" for r in chosen.sort("year").to_dicts()),
+                )
+    assert nested() - before == metrics.height, "MLflow child count differs from the logged rows"
+    return metrics.height
+
+
+def register_chosen(
+    frame: pl.DataFrame, feats: list[str], fc: pl.DataFrame, sel: pl.DataFrame, primary: dict
+) -> str:
+    """Register the chosen tier's final model as `fhh-chapter2-hit` and return the version.
+
+    The model is the chosen tier's configuration tuned for the last year, fit on all rows before
+    that year (`walkforward.fit_final`). Asserted equal to the logged `tier:<chosen>` forecasts of
+    the last year, both as fitted and after loading it back from the registry.
+    """
+    chosen, last = primary["chosen"], int(fc["year"].max())
+    name = sel.filter(
+        (pl.col("target") == PRIMARY_TARGET) & (pl.col("year") == last) & (pl.col("tier") == chosen)
+    )["model"].item()
+    model = walkforward.fit_final(frame, feats, name, last)
+    test = frame.filter(pl.col("session").dt.year() == last)
+    logged = fc.filter(
+        (pl.col("target") == PRIMARY_TARGET) & (pl.col("model") == f"tier:{chosen}")
+        & (pl.col("year") == last)
+    ).sort("session")  # fmt: skip
+    assert logged["session"].to_list() == test["session"].to_list()
+    x_test = test.select(feats).to_numpy()
+    np.testing.assert_allclose(
+        model.predict_proba(x_test)[:, 1], logged["p"].to_numpy(), rtol=1e-12
+    )
+    version = register_final_model(
+        model,
+        {c: test[c].head(5).to_numpy() for c in feats},
+        {
+            "chosen_on": f"{config.CH2_VALID[0].year}-{config.CH2_VALID[1].year}",
+            "judging_bss_vs_calibrated": f"{primary['bss_cal']:.6f}",
+            "primary_pass": str(primary["primary_pass"]),
+            "configuration": name,
+        },
+    )
+    back = mlflow.sklearn.load_model(f"models:/{config.CH2_REGISTERED_MODEL}/{version}")
+    np.testing.assert_allclose(back.predict_proba(x_test)[:, 1], logged["p"].to_numpy(), rtol=1e-12)
+    return version
 
 
 def register_final_model(model, x_example: dict[str, np.ndarray], tags: dict[str, str]) -> str:
