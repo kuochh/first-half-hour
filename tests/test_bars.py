@@ -65,23 +65,19 @@ def test_a_tampered_file_fails_its_manifest_check(tmp_path, window):
         bars.verified_month_files(tmp_path, "SPY")
 
 
-def test_a_repeated_bar_fails_loud(tmp_path, window):
-    rows = _full_month(window)
-    _write_month(tmp_path, rows + [rows[0]])
-    with pytest.raises(AssertionError, match="repeated"):
-        bars.rth_bars(tmp_path, "SPY", window)
-
-
 @pytest.mark.parametrize(
-    ("extra", "message"),
+    ("edit", "message"),
     [
-        (datetime(2019, 11, 12, 9, 29), "before the open"),
-        (datetime(2019, 11, 9, 10, 0), "non-sessions"),  # a Saturday
-        (datetime(2019, 11, 12, 10, 0, 30), "whole minute"),
+        (lambda rows: rows + [rows[0]], "repeated"),
+        (lambda rows: rows + [datetime(2019, 11, 12, 9, 29)], "before the open"),
+        (lambda rows: rows + [datetime(2019, 11, 9, 10, 0)], "non-sessions"),  # a Saturday
+        (lambda rows: rows + [datetime(2019, 11, 12, 10, 0, 30)], "whole minute"),
+        (lambda rows: [t for t in rows if t.date() != date(2019, 11, 12)], "missing sessions"),
     ],
+    ids=["repeated-bar", "before-open", "non-session", "off-minute", "missing-session"],
 )
-def test_an_impossible_bar_fails_loud(tmp_path, window, extra, message):
-    _write_month(tmp_path, _full_month(window) + [extra])
+def test_a_corrupt_month_fails_loud(tmp_path, window, edit, message):
+    _write_month(tmp_path, edit(_full_month(window)))
     with pytest.raises(AssertionError, match=message):
         bars.rth_bars(tmp_path, "SPY", window)
 
@@ -93,13 +89,6 @@ def test_a_half_day_with_only_after_hours_prints_is_dropped_not_lost(tmp_path, w
     dropped = bars.sessions_missing_key_bar(bars.rth_bars(tmp_path, "SPY", window), window)
     assert dropped["session"].to_list() == [half]
     assert dropped["lacking"].item() == "09:59, 11:59, 12:29, 12:59"
-
-
-def test_a_missing_session_fails_loud(tmp_path, window):
-    gone = date(2019, 11, 12)
-    _write_month(tmp_path, [t for t in _full_month(window) if t.date() != gone])
-    with pytest.raises(AssertionError, match="missing sessions"):
-        bars.rth_bars(tmp_path, "SPY", window)
 
 
 def test_only_sessions_missing_a_key_bar_are_dropped(tmp_path, window):

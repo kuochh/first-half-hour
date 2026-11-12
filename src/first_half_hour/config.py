@@ -42,3 +42,11 @@ FRED_SERIES: tuple[str, ...] = ("VIXCLS", "VXVCLS")
 """Daily FRED series the study reads: the VIX and VIX3M closes (Cboe data, under Cboe's terms)."""
 FRED_DATE_COLUMN: str = "observation_date"
 FRED_MISSING_TOKEN: str = "."
+
+SAMPLES: dict[str, tuple[date, date]] = {
+    "OVERLAP": (date(2011, 1, 3), date(2013, 12, 31)),
+    "POST": (date(2014, 1, 2), date(2026, 8, 31)),
+    "FULL": (date(2011, 1, 3), date(2026, 8, 31)),
+}
+"""Chapter 1 samples, inclusive. OVERLAP is the replication window (the paper's sample ran to 2013);
+POST is data the paper never saw."""
