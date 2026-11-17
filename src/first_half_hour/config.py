@@ -206,6 +206,12 @@ PART1_JUMP_PCT: tuple[float, float] = (0.10, 0.90)
 """Percentiles of daily close-to-close returns that define a Baltussen 'jump'."""
 OFFICIAL_CLOSE_FILE: str = "daily_close/SPY_yahoo_daily.csv"
 """The official close CSV, relative to the bars' data root."""
+OFFICIAL_CLOSE_VERIFY: bool = True
+"""Check the official close CSV against the recorded size and sha256 (reproduce --synthetic sets
+False: its CSV is a stub)."""
+OFFICIAL_CLOSE_BYTES: int = 466_684
+OFFICIAL_CLOSE_SHA256: str = "0013f5c0fee4641ef6293a89a0583dbe825ff5062a30206fa65189aee72fa6b4"
+"""Size and sha256 of the real daily_close/SPY_yahoo_daily.csv (Yahoo pull of 2026-11-16; Yahoo revises history)."""
 OFFICIAL_CLOSE_MAX_PERIOD_STEP: float = 5e-4
 """Adjacent dividend periods' calibration constants c_p may differ by less than 5 bp (largest real step:
 +3.0 bp into the period starting 2020-03-20, Covid; the rest are 2 bp or less)."""
@@ -232,31 +238,41 @@ PAPER: dict[tuple[str, str, str], tuple[float, str, str]] = {
     ("gao_rule", "rule", "ann_mean"): (0.0667, f"{_GAO}, Table 5", _SPY),
     ("gao_rule", "rule", "sharpe"): (1.08, f"{_GAO}, Table 5", _SPY),
     ("gao_rule", "rule", "success"): (0.5437, f"{_GAO}, Table 5", _SPY),
+    ("gao_rule", "rule", "success_excess"): (0.0395, f"{_GAO}, Table 5 (54.37 - 50.42)", _SPY),
     ("gao_news", "FOMC", "r2"): (0.110, f"{_GAO}, Table 11", _SPY),
     ("gao_news", "non-FOMC", "r2"): (0.025, f"{_GAO}, Table 11", _SPY),
     ("gao_news", "CPI", "r2"): (0.050, f"{_GAO}, Table 11", _SPY),
     ("gao_news", "non-CPI", "r2"): (0.025, f"{_GAO}, Table 11", _SPY),
-    ("balt_slope", "rod", "slope"): (0.062, f"{_BALT}, Table B1 (ES)", "S&P 500 E-mini futures"),
-    ("balt_horse", "r1", "slope"): (0.011, f"{_BALT}, Table 3 Panel A", _FUT),
-    ("balt_horse", "rod", "slope"): (0.037, f"{_BALT}, Table 3 Panel A", _FUT),
-    ("balt_large_move", "x_jump", "slope"): (0.052, f"{_BALT}, Table 10 (rLH)", _FUT),
-    ("balt_reversal", "k1", "slope"): (-0.145, f"{_BALT}, Table 11 Panel A", _FUT),
-    ("balt_reversal", "k2", "slope"): (-0.29, f"{_BALT}, Table 11 Panel A", _FUT),
-    ("balt_reversal", "k3", "slope"): (-0.28, f"{_BALT}, Table 11 Panel A", _FUT),
-    ("balt_last_k", "r13", "slope"): (0.060, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
-    ("balt_last_k", "r_last15", "slope"): (0.028, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
-    ("balt_last_k", "r_last5", "slope"): (0.019, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_slope", "rod", "slope"): (0.0618, f"{_BALT}, Table B1 (ES)", "S&P 500 E-mini futures"),
+    ("balt_horse", "r1", "slope"): (0.0114, f"{_BALT}, Table 3 Panel A", _FUT),
+    ("balt_horse", "rod", "slope"): (0.0365, f"{_BALT}, Table 3 Panel A", _FUT),
+    ("balt_large_move", "x_jump", "slope"): (0.0516, f"{_BALT}, Table 10 (rLH)", _FUT),
+    ("balt_reversal", "k1", "slope"): (-0.1451, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_reversal", "k2", "slope"): (-0.2905, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_reversal", "k3", "slope"): (-0.2798, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_last_k", "r13", "slope"): (0.0598, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_last_k", "r_last15", "slope"): (0.0283, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_last_k", "r_last5", "slope"): (0.0194, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
     ("balt_rule", "rule", "ann_mean"): (0.0686, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
     ("balt_rule", "rule", "sharpe"): (1.73, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
     ("balt_rule", "rule", "success"): (0.55, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
+    ("balt_rule", "rule", "success_excess"): (0.02, f"{_BALT}, Table 6 Panel A (55 - 53)", "equity-index futures, 1/N portfolio"),
 }  # fmt: skip
-PAPER_ALWAYS_LONG_SUCCESS: dict[str, float] = {"gao_rule": 0.5042, "balt_rule": 0.53}
-"""The papers' own always-long success rates, quoted in the rows' notes."""
+_ONE_N = "equity-index futures, 1/N portfolio"
+PAPER_ALWAYS_LONG: dict[tuple[str, str], tuple[float, str, str]] = {
+    ("gao_rule", "ann_mean"): (-0.0111, f"{_GAO}, Table 5 Panel B (always long)", _SPY),
+    ("gao_rule", "sharpe"): (-0.18, f"{_GAO}, Table 5 Panel B (always long)", _SPY),
+    ("gao_rule", "success"): (0.5042, f"{_GAO}, Table 5 Panel B (always long)", _SPY),
+    ("balt_rule", "ann_mean"): (0.0044, f"{_BALT}, Table 6 Panel A (always long)", _ONE_N),
+    ("balt_rule", "sharpe"): (0.11, f"{_BALT}, Table 6 Panel A (always long)", _ONE_N),
+    ("balt_rule", "success"): (0.53, f"{_BALT}, Table 6 Panel A (always long)", _ONE_N),
+}
+"""The papers' own always-long figures, shown as paper values on the always_long rows (no verdict)."""
 
 # Part 1 report (figures and report; P1-3)
 PART1_REPORT_ROLLING_WINDOW: int = 756
 """Sessions in the Part 1 rolling-slope figure (three years)."""
-PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.062}
+PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.0618}
 """Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
 PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""

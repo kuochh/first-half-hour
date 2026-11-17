@@ -80,6 +80,7 @@ SYNTHETIC_PART1_OVERRIDES = {
     },
     "PART1_BOOT_REPS": 100,
     "PART1_OOS_START": date(2017, 1, 3),
+    "OFFICIAL_CLOSE_VERIFY": False,  # the stub CSV has no recorded size or hash
 }
 """Part 1, synthetic: one warm-up year (past the tercile warm-up), then two years per window."""
 

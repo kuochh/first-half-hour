@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 import statsmodels.api as sm
 from arch.bootstrap import StationaryBootstrap
+from scipy import stats
 
 from first_half_hour import bars, closes, config, oos, returns, timing
 
@@ -25,14 +26,20 @@ N_BOUNDARIES = 12
 """Half-hour boundaries 10:00 .. 15:30 on a regular day (a half-day has 6)."""
 _FIRST_BOUNDARY_MOD = 10 * 60
 CHECK_VARIANTS = ("check_1559", "cost_1bp")
+SMALL_VERDICT = "sample too small"
+NULL_R2_LABEL = "no-skill R² k/(n-1)"
+BALT_PORTFOLIO_NOTE = (
+    "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
+    "diversification: no verdict"
+)
 COLUMNS = (
     "item", "paper", "window", "variant", "term", "metric", "n", "ours", "se", "se_kind", "lo",
     "hi", "paper_value", "paper_source", "paper_market", "null_value", "null_label", "se_null",
-    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "note",
+    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "loo_min", "note",
 )  # fmt: skip
 _SCHEMA: dict[str, pl.DataType] = {
     **{c: pl.Float64 for c in ("ours", "se", "lo", "hi", "paper_value", "null_value", "se_null",
-                               "d_null", "d_paper", "mde", "cw_p")},
+                               "d_null", "d_paper", "mde", "cw_p", "loo_min")},
     **{c: pl.String for c in ("item", "paper", "window", "variant", "term", "metric", "se_kind",
                               "paper_source", "paper_market", "null_label", "verdict", "note")},
     "n": pl.Int64, "small_sample": pl.Boolean,
@@ -173,16 +180,23 @@ def _boot_sd(func: Callable, *arrays: np.ndarray, block_from: np.ndarray) -> flo
 
 
 def verdict(
-    ours: float, se: float, paper: float | None, null: float, se_null: float
+    ours: float,
+    se: float,
+    paper: float | None,
+    null: float,
+    se_null: float,
+    d_null: float | None = None,
 ) -> dict[str, float | str | None]:
     """d_null, d_paper, verdict, mde and the +/- 2 se range. See the spec's Verdict section.
 
     d_paper treats the paper's value as fixed (our SE only). With no paper value, d_paper and the
-    verdict are None.
+    verdict are None. `d_null` replaces |ours - null| / se_null when the test against the no-skill
+    value is another one (the R2 rows: the HAC Wald test of the slopes).
     """
     assert se > 0 and se_null > 0, f"non-positive standard error {se}, {se_null}"
     z = config.PART1_VERDICT_Z
-    d_null = abs(ours - null) / se_null
+    if d_null is None:
+        d_null = abs(ours - null) / se_null
     out: dict[str, float | str | None] = {
         "d_null": d_null, "d_paper": None, "verdict": None,
         "mde": config.PART1_MDE_Z * se_null, "lo": ours - z * se, "hi": ours + z * se,
@@ -211,12 +225,29 @@ class _Rows:
         se_null = kw.pop("se_null", None) or se
         note = kw.pop("note", None)
         cw_p = kw.pop("cw_p", None)
+        loo_min = kw.pop("loo_min", None)
+        d_null = kw.pop("d_null", None)
+        no_verdict = kw.pop("no_verdict", False)
         assert not kw, f"unknown row fields {kw}"
-        paper = config.PAPER.get((item, term, metric)) if variant != "cost_1bp" else None
+        if variant == "always_long":  # the papers' own always-long figure, never judged
+            paper = config.PAPER_ALWAYS_LONG.get((item, metric))
+            no_verdict = True
+        elif variant == "cost_1bp":
+            paper = None
+        else:
+            paper = config.PAPER.get((item, term, metric))
         pv = paper[0] if paper else None
-        v = verdict(ours, se, pv, null_value, se_null)
+        v = verdict(ours, se, pv, null_value, se_null, d_null)
         if variant in CHECK_VARIANTS:  # rows beside the main row: no verdict
             v["d_paper"] = v["verdict"] = None
+        if no_verdict:
+            v["verdict"] = None
+        if v["verdict"] is not None and n < config.PART1_SMALL_N:
+            v["verdict"] = (
+                SMALL_VERDICT  # run and shown, but not judged (d_null, d_paper, mde stay)
+            )
+        if variant == "always_long":
+            v["d_paper"] = None
         self.rows.append(
             {
                 "item": item, "paper": "gao" if item.startswith("gao") else "baltussen",
@@ -226,12 +257,25 @@ class _Rows:
                 "paper_market": paper[2] if paper else None, "null_value": null_value,
                 "null_label": null_label, "se_null": se_null, "d_null": v["d_null"],
                 "d_paper": v["d_paper"], "verdict": v["verdict"], "mde": v["mde"],
-                "small_sample": n < config.PART1_SMALL_N, "cw_p": cw_p, "note": note,
+                "small_sample": n < config.PART1_SMALL_N, "cw_p": cw_p, "loo_min": loo_min,
+                "note": note,
             }
         )  # fmt: skip
 
     def slopes(
-        self, item, window, variant, df, y, xs, *, lags=None, note=None, tag=None, only=None
+        self,
+        item,
+        window,
+        variant,
+        df,
+        y,
+        xs,
+        *,
+        lags=None,
+        note=None,
+        tag=None,
+        only=None,
+        no_verdict=False,
     ) -> None:
         """One slope row per x of y ~ xs (NW errors; `only` limits it); term <x> (or <tag>)."""
         d = df.drop_nulls([y, *xs])
@@ -241,13 +285,33 @@ class _Rows:
                 continue
             term = tag or x
             self.add(item, window, variant, term, "slope", n, float(params[i]), float(bse[i]), "nw",
-                     note=note)  # fmt: skip
+                     note=note, no_verdict=no_verdict)  # fmt: skip
 
 
 def _r2(y: np.ndarray, X: np.ndarray) -> float:
     A = np.column_stack([np.ones(y.size), X])
     resid = y - A @ np.linalg.lstsq(A, y, rcond=None)[0]
     return float(1 - (resid @ resid) / ((y - y.mean()) @ (y - y.mean())))
+
+
+def _wald_p(y: np.ndarray, X: np.ndarray) -> float:
+    """p of the HAC (Newey-West) Wald test that every slope of y ~ X is 0 (chi-square)."""
+    fit = sm.OLS(y, sm.add_constant(X, has_constant="add")).fit(
+        cov_type="HAC", cov_kwds={"maxlags": config.nw_lags(y.size)}
+    )
+    k = X.shape[1]
+    return float(fit.wald_test(np.eye(k + 1)[1:], use_f=False, scalar=True).pvalue)
+
+
+def _loo_min_r2(y: np.ndarray, X: np.ndarray) -> float:
+    """The smallest R2 after dropping any single row (does one day carry the number?)."""
+    keep = np.ones(y.size, dtype=bool)
+    out = []
+    for i in range(y.size):
+        keep[i] = False
+        out.append(_r2(y[keep], X[keep]))
+        keep[i] = True
+    return float(min(out))
 
 
 # ------------------------------------------------------------------ the rule rows (G6, B6)
@@ -262,8 +326,10 @@ def _success_paired_se(r: np.ndarray, long_r: np.ndarray) -> float:
 
 
 def _rule_rows(rows: _Rows, item: str, window: str, df: pl.DataFrame, signal: str) -> None:
-    """eta(signal): long if signal > 0 else short, earns r13; main, check_1559 and cost_1bp rows."""
-    long_note = f"paper's always-long success {config.PAPER_ALWAYS_LONG_SUCCESS[item]:.2%}"
+    """eta(signal): long if signal > 0 else short, earns r13; main, check_1559 and cost_1bp rows,
+    then always-long's own ann_mean, sharpe and success (variant always_long)."""
+    balt = item == "balt_rule"
+    td = config.TRADING_DAYS
     for variant, sig, ret, cost in (
         ("main", signal, "r13", 0.0),
         ("check_1559", f"{signal}_bar", "r13_bar", 0.0),
@@ -274,26 +340,45 @@ def _rule_rows(rows: _Rows, item: str, window: str, df: pl.DataFrame, signal: st
         x = d[ret].to_numpy()
         r = timing.net_returns(pos, x, cost)
         n = r.size
-        nw_se = float(
-            sm.OLS(r, np.ones(n))
-            .fit(cov_type="HAC", cov_kwds={"maxlags": config.nw_lags(n)})
-            .bse[0]
-        )
-        td = config.TRADING_DAYS
-        rows.add(item, window, variant, "rule", "ann_mean", n, td * float(r.mean()), td * nw_se,
-                 "nw")  # fmt: skip
+        rows.add(item, window, variant, "rule", "ann_mean", n, td * float(r.mean()),
+                 td * _nw_se_mean(r), "nw")  # fmt: skip
         rows.add(item, window, variant, "rule", "sharpe", n, timing.sharpe(r),
-                 _boot_sd(timing.sharpe, r, block_from=r), "bootstrap")  # fmt: skip
+                 _boot_sd(timing.sharpe, r, block_from=r), "bootstrap",
+                 no_verdict=balt and variant == "main",
+                 note=BALT_PORTFOLIO_NOTE if balt and variant == "main" else None)  # fmt: skip
         if variant == "cost_1bp":
             continue
         ours = float((r > 0).mean())
-        null = float((x > 0).mean())
+        al = float((x > 0).mean())
+        paired = _success_paired_se(r, x)
         rows.add(
             item, window, variant, "rule", "success", n, ours,
             _boot_sd(lambda a: float((a > 0).mean()), r, block_from=(r > 0).astype(float)),
-            "bootstrap", null_value=null, null_label="always-long success",
-            se_null=_success_paired_se(r, x), note=long_note,
+            "bootstrap", null_value=al, null_label="always-long success", se_null=paired,
+            no_verdict=True,
         )  # fmt: skip
+        rows.add(
+            item, window, variant, "rule", "success_excess", n, ours - al, paired, "bootstrap",
+            no_verdict=balt and variant == "main",
+            note=BALT_PORTFOLIO_NOTE if balt and variant == "main" else None,
+        )  # fmt: skip
+    x = df.drop_nulls([signal, "r13"])["r13"].to_numpy()
+    n = x.size
+    rows.add(item, window, "always_long", "rule", "ann_mean", n, td * float(x.mean()),
+             td * _nw_se_mean(x), "nw")  # fmt: skip
+    rows.add(item, window, "always_long", "rule", "sharpe", n, timing.sharpe(x),
+             _boot_sd(timing.sharpe, x, block_from=x), "bootstrap")  # fmt: skip
+    rows.add(item, window, "always_long", "rule", "success", n, float((x > 0).mean()),
+             _boot_sd(lambda a: float((a > 0).mean()), x, block_from=(x > 0).astype(float)),
+             "bootstrap")  # fmt: skip
+
+
+def _nw_se_mean(r: np.ndarray) -> float:
+    """Newey-West standard error of the mean of r."""
+    fit = sm.OLS(r, np.ones(r.size)).fit(
+        cov_type="HAC", cov_kwds={"maxlags": config.nw_lags(r.size)}
+    )
+    return float(fit.bse[0])
 
 
 # ------------------------------------------------------------------ the rows
@@ -336,19 +421,24 @@ def _gao(rows: _Rows, t: pl.DataFrame) -> None:
                             tag=name, only="r1", note=note)  # fmt: skip
         _oos_row(rows, w, _window(fc, w))
         _rule_rows(rows, "gao_rule", w, d, "r1")
-        # G7: news days
+        # G7: news days (R2 against its no-skill value k/(n-1), tested by the HAC Wald test)
         for flag, label in (("fomc", "fomc"), ("cpi", "cpi")):
             for val, name in ((True, label.upper()), (False, f"non-{label.upper()}")):
                 g = d.filter(pl.col(flag) == val).drop_nulls(["r13", "r1", "r12"])
                 y, X = g["r13"].to_numpy(), g.select("r1", "r12").to_numpy()
+                r2, p_wald = _r2(y, X), _wald_p(y, X)
                 note = (
                     "FOMC = scheduled statement days; Gao's table says 'FOMC minutes release at "
                     "2:15 pm', which matches statement days before 2013"
                     if flag == "fomc"
                     else None
                 )
-                rows.add("gao_news", w, "main", name, "r2", y.size, _r2(y, X),
-                         _boot_sd(_r2, y, X, block_from=y), "bootstrap", note=note)  # fmt: skip
+                k = X.shape[1]
+                rows.add("gao_news", w, "main", name, "r2", y.size, r2,
+                         _boot_sd(_r2, y, X, block_from=y), "bootstrap", note=note,
+                         null_value=k / (y.size - 1), null_label=NULL_R2_LABEL,
+                         d_null=float(stats.norm.isf(max(p_wald, 1e-300) / 2)),
+                         loo_min=_loo_min_r2(y, X))  # fmt: skip
 
 
 def _oos_row(rows: _Rows, window: str, fc: pl.DataFrame) -> None:
@@ -361,8 +451,7 @@ def _oos_row(rows: _Rows, window: str, fc: pl.DataFrame) -> None:
     _, p = oos.clark_west(y, yh, mu)
     rows.add("gao_oos_r2", window, "main", "r1", "r2_os", y.size, r2_os(y, yh, mu), se,
              "bootstrap", cw_p=p,
-             note=f"recursive monthly refit vs the expanding mean; forecasts start "
-                  f"{config.PART1_OOS_START} (earlier sessions are the warm-up)")  # fmt: skip
+             note="recursive monthly refit vs the expanding mean; earlier sessions are the warm-up")  # fmt: skip
 
 
 def _baltussen(rows: _Rows, t: pl.DataFrame) -> None:
@@ -397,7 +486,8 @@ def _baltussen(rows: _Rows, t: pl.DataFrame) -> None:
             rows.slopes("balt_reversal", w, "main", g, f"r_next_{k}", ["r13"],
                         lags=max(config.nw_lags(g.height), k), tag=f"k{k}")  # fmt: skip
         for y in ("r13", "r_last15", "r_last5"):
-            rows.slopes("balt_last_k", w, "main", d, y, ["rod"], tag=y)
+            rows.slopes("balt_last_k", w, "main", d, y, ["rod"], tag=y, no_verdict=y == "r13",
+                        note="same regression as the 0.062 row" if y == "r13" else None)  # fmt: skip
         _rule_rows(rows, "balt_rule", w, d, "rod")
 
 

@@ -13,12 +13,12 @@ from first_half_hour import config, report_part1
 COLS = [
     "item", "paper", "window", "variant", "term", "metric", "n", "ours", "se", "se_kind", "lo",
     "hi", "paper_value", "paper_source", "paper_market", "null_value", "null_label", "se_null",
-    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "note",
+    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "loo_min", "note",
 ]  # fmt: skip
 ANY_CELL = re.compile(r"<t[dh][^>]*>([^<]*)</t[dh]>")
 CODE = re.compile(r"[a-z]+_[a-z0-9_]+")
 SCI = re.compile(r"\d[eE][+-]?\d")
-VERDICTS = ["replicated", "not replicated", "cannot tell", None]
+VERDICTS = ["replicated", "not replicated", "cannot tell", "sample too small", None]
 # item: (metric, term, market, windows' paper); one row per window kind below
 SPEC = {
     "gao_slope": ("slope", "r1", "SPY"),
@@ -51,11 +51,12 @@ def fake_rows() -> pl.DataFrame:
                 "lo": ours - 2 * se, "hi": ours + 2 * se, "paper_value": 0.069,
                 "paper_source": f"{'Gao WP Oct 2014' if gao else 'Baltussen SSRN Aug 2020'}, Table 1",
                 "paper_market": market, "null_value": 0.0, "null_label": "0", "se_null": se,
-                "d_null": 3.0, "d_paper": 1.0, "verdict": VERDICTS[(i + w) % 4],
+                "d_null": 3.0, "d_paper": 1.0, "verdict": VERDICTS[(i + w) % 5],
                 "mde": 2.84 * se, "small_sample": item == "gao_news" and w == 0,
                 "cw_p": 0.0004 if item == "gao_oos_r2" and w == 0 else (
                     0.2 if item == "gao_oos_r2" else None),
-                "note": None,
+                "loo_min": 0.01 if metric == "r2" else None,
+                "note": "same regression as the 0.062 row" if item == "balt_last_k" else None,
             })  # fmt: skip
     return pl.DataFrame(rows).select(COLS)
 
@@ -105,6 +106,8 @@ def test_report_renders_in_both_languages_with_same_numbers(tmp_path):
         assert page.count("<table>") == page.count('style="overflow-x:auto"><table>') == 3
         assert not [c for c in ANY_CELL.findall(page) if SCI.search(c)]
         assert "after publication" not in page
+        for gone in ("first half-hour", "first-half-hour", "overnight", "last half-hour"):
+            assert gone not in page.lower(), gone
     bare = re.compile(r"(?<![A-Za-z0-9_])(r1|r12|r13|rod)(?![A-Za-z0-9_])")
     for page in (en, zh):  # D50: the four returns are named in words, never by code
         text = re.sub(r"<style>.*?</style>|<img[^>]*>", "", page, flags=re.DOTALL)
@@ -125,15 +128,20 @@ def test_verdict_counts_and_formats():
     rows = fake_rows()
     html = report_part1._verdict_counts(rows, "en")
     rated = rows.filter(pl.col("verdict").is_not_null())
-    for v in ("replicated", "not replicated", "cannot tell"):
+    for v in ("replicated", "not replicated", "cannot tell", "sample too small"):
         n = rated.filter((pl.col("window") == "gao_overlap") & (pl.col("verdict") == v)).height
         assert n > 0
-    row = re.search(r"<td>Gao overlap</td>((?:<td>\d+</td>){3})", html).group(1)
+    row = re.search(r"<td>Gao overlap</td>((?:<td>\d+</td>){4})", html).group(1)
     counts = [int(x) for x in re.findall(r"\d+", row)]
     assert counts == [
         rated.filter((pl.col("window") == "gao_overlap") & (pl.col("verdict") == v)).height
-        for v in ("replicated", "not replicated", "cannot tell")
+        for v in ("replicated", "not replicated", "cannot tell", "sample too small")
     ]
+    # full_window rows are shown but not counted
+    extra = rows.filter(pl.col("item") == "gao_slope").with_columns(
+        variant=pl.lit("full_window"), verdict=pl.lit("replicated")
+    )
+    assert report_part1._verdict_counts(pl.concat([rows, extra]), "en") == html
     assert report_part1._num("slope", 0.069) == "0.069"
     assert report_part1._num("r2_os", 0.0169) == "1.69"
     assert report_part1._num("sharpe", 1.0801) == "1.08"
@@ -166,3 +174,19 @@ def test_figures_are_written_and_check_inputs(tmp_path):
                         "wealth": [1.0]})  # fmt: skip
     with pytest.raises(AssertionError, match="rules differ"):
         report_part1.plot_cumulative(cum, tmp_path / "x.png", date(2013, 12, 31), date(2020, 5, 1))
+
+
+def test_table_shows_no_skill_note_and_loo_min():
+    rows = fake_rows().with_columns(
+        null_value=pl.when(pl.col("metric") == "r2").then(0.087).otherwise(pl.col("null_value")),
+        null_label=pl.when(pl.col("metric") == "r2").then(pl.lit("no-skill R² k/(n-1)"))
+        .otherwise(pl.col("null_label")),
+    )  # fmt: skip
+    en = report_part1._comparison(rows, "en")
+    zh = report_part1._comparison(rows, "zh")
+    assert "8.70 (no-skill R² k/(n-1))" in en and "8.70 (無技能 R² k/(n-1))" in zh
+    assert "same regression as the 0.062 row (B1)" in en and "和 0.062 那一列" in zh
+    assert "leave-one-out min" in en and ">1.00<" in en  # loo_min 0.01 shown as a percent
+    assert "cut-offs from earlier sessions only" in report_part1.VARIANT["past_only"][0]
+    with pytest.raises(AssertionError, match="no en label for note"):
+        report_part1._comparison(rows.with_columns(note=pl.lit("a new note")), "en")

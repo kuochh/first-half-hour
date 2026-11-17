@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from first_half_hour import bars, calendar, config, part1, returns, synthetic
+from first_half_hour import bars, calendar, config, part1, report_part1, returns, synthetic
 
 # ------------------------------------------------------------------ synthetic bars, official close
 
@@ -214,18 +214,47 @@ def test_rows_columns_windows_and_planted_slope(rows):
     for r in s.iter_rows(named=True):
         assert abs(r["ours"] - 0.07) < 3 * r["se"] and r["paper_value"] == 0.069
         assert r["lo"] == pytest.approx(r["ours"] - 2 * r["se"])
-    # no verdict on check and cost rows or rows without a paper value
+    # no verdict on check, cost and always-long rows, rows without a paper value, the success level,
+    # the two B5 / B6 rows judged against another construct, nor on rows whose verdict is given below
     quiet = rows.filter(
-        pl.col("variant").is_in(["check_1559", "cost_1bp"]) | pl.col("paper_value").is_null()
-    )
+        pl.col("variant").is_in(["check_1559", "cost_1bp", "always_long"])
+        | pl.col("paper_value").is_null() | (pl.col("metric") == "success")
+        | ((pl.col("item") == "balt_last_k") & (pl.col("term") == "r13"))
+        | ((pl.col("item") == "balt_rule") & pl.col("metric").is_in(["sharpe", "success_excess"]))
+    )  # fmt: skip
     assert quiet["verdict"].null_count() == quiet.height
-    loud = rows.filter(
-        ~pl.col("variant").is_in(["check_1559", "cost_1bp"]) & pl.col("paper_value").is_not_null()
-    )
+    loud = rows.join(quiet.select("item", "window", "variant", "term", "metric"),
+                     on=["item", "window", "variant", "term", "metric"], how="anti")  # fmt: skip
     assert loud["verdict"].null_count() == 0
+    # small samples (n < 250) are labelled, not judged; the others keep one of the three verdicts
+    small = loud.filter(pl.col("n") < config.PART1_SMALL_N)
+    assert small.height and (small["verdict"] == "sample too small").all()
+    assert (small["small_sample"]).all() and small["d_null"].null_count() == 0
+    big = loud.filter(pl.col("n") >= config.PART1_SMALL_N)
+    assert big["verdict"].is_in(["replicated", "not replicated", "cannot tell"]).all()
+    # G7: no-skill R2 is k/(n-1) with k = 2, d_null from the HAC Wald test, loo_min on R2 rows only
+    news = rows.filter(pl.col("item") == "gao_news")
+    assert (
+        news["loo_min"].null_count() == 0
+        and rows["loo_min"].null_count() == rows.height - news.height
+    )
+    assert (news["null_value"] == 2 / (news["n"] - 1)).all()
+    assert (news["loo_min"] <= news["ours"] + 1e-12).all()
+    # always-long baseline rows carry the paper's always-long and no verdict; success_excess = success - null
+    al = rows.filter(pl.col("variant") == "always_long")
+    assert al.height == 3 * 4 and set(al["metric"]) == {"ann_mean", "sharpe", "success"}
+    assert set(al.filter(pl.col("item") == "gao_rule")["paper_value"]) == {-0.0111, -0.18, 0.5042}
+    suc = rows.filter((pl.col("metric") == "success") & (pl.col("variant") == "main"))
+    exc = rows.filter((pl.col("metric") == "success_excess") & (pl.col("variant") == "main"))
+    both = suc.join(exc, on=["item", "window"], suffix="_x")
+    assert both.height == 4
+    assert np.allclose(both["ours_x"], both["ours"] - both["null_value"])
+    assert (both["se_x"] == both["se_null"]).all()
     # OOS forecasts start 2012-01-03: the overlap window holds 2012-2013 only (~500 forecasts; the fake table has no holidays)
     oos_row = rows.filter((pl.col("item") == "gao_oos_r2") & (pl.col("window") == "gao_overlap"))
     assert 500 <= oos_row["n"].item() <= 525 and oos_row["cw_p"].item() is not None
+    # every row note has an English and a Chinese label in the report
+    assert set(rows["note"].drop_nulls()) <= set(report_part1.NOTE)
     # every paper value in config shows up on a row with its source and market
     keys = set(zip(rows["item"], rows["term"], rows["metric"], strict=True))
     assert set(config.PAPER) <= keys

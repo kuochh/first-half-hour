@@ -39,7 +39,7 @@ ITEMS: dict[str, tuple[str, str, str]] = {
     "gao_r12": ("gao", "G2 slope of {r13} on {r12}", "G2 {r13} 對 {r12} 的斜率"),
     "gao_joint": ("gao", "G3 {r13} on {r1} and {r12}", "G3 {r13} 對 {r1} 與 {r12}"),
     "gao_vol_tercile": (
-        "gao", "G4 slope by first-half-hour volatility tercile", "G4 依前半小時波動三分位的斜率",
+        "gao", "G4 slope by tercile of 9:30 to 10:00 volatility", "G4 依 9:30 到 10:00 波動三分位的斜率",
     ),
     "gao_oos_r2": ("gao", "G5 out-of-sample R2", "G5 樣本外 R²"),
     "gao_rule": ("gao", "G6 trade {r13} on the sign of {r1}", "G6 依 {r1} 的正負號交易 {r13}"),
@@ -58,8 +58,9 @@ VARIANT = {
     "main": ("main", "主要設定"),
     "check_1559": ("15:59 bar check", "15:59 分鐘棒檢查"),
     "cost_1bp": ("net of 1 bp per side", "扣除單邊 1 bp 成本"),
-    "full_window": ("terciles from the whole window (uses the future)", "用整個期間算分位（用到未來）"),
-    "past_only": ("terciles from earlier sessions only", "只用更早的交易日算分位"),
+    "full_window": ("cut-offs from the whole window", "用整段期間定界線"),
+    "past_only": ("cut-offs from earlier sessions only", "只用之前的日子定界線"),
+    "always_long": ("always long", "一直做多"),
 }  # fmt: skip
 METRIC = {
     "slope": ("slope", "斜率"),
@@ -68,14 +69,15 @@ METRIC = {
     "ann_mean": ("annual mean (%)", "年化平均報酬（%）"),
     "sharpe": ("Sharpe", "Sharpe"),
     "success": ("success rate (%)", "勝率（%）"),
+    "success_excess": ("success rate minus always-long (pp)", "勝率減一直做多的勝率（百分點）"),
 }  # fmt: skip
 TERM = {
     **{k: v for k, v in RET.items()},
     "r1+r12": (f"{RET['r1'][0]} + {RET['r12'][0]}", f"{RET['r1'][1]} + {RET['r12'][1]}"), "rule": ("rule", "規則"),
     "low": ("low volatility", "低波動"), "mid": ("mid volatility", "中波動"),
     "high": ("high volatility", "高波動"),
-    "FOMC": ("FOMC days", "FOMC 日"), "non-FOMC": ("other days", "非 FOMC 日"),
-    "CPI": ("CPI days", "CPI 日"), "non-CPI": ("other days", "非 CPI 日"),
+    "FOMC": ("FOMC days", "FOMC 日"), "non-FOMC": ("non-FOMC days", "非 Fed 日"),
+    "CPI": ("CPI days", "CPI 日"), "non-CPI": ("non-CPI days", "非 CPI 日"),
     "x_jump": ("first jump", "第一次跳動"),
     "k1": ("next 1 day", "隔 1 日"), "k2": ("next 2 days", "隔 2 日"), "k3": ("next 3 days", "隔 3 日"),
     "r_last15": ("last 15 min", "最後 15 分鐘"), "r_last5": ("last 5 min", "最後 5 分鐘"),
@@ -91,6 +93,7 @@ VERDICT = {
     "replicated": ("replicated", "重現"),
     "not replicated": ("not replicated", "沒重現"),
     "cannot tell": ("cannot tell", "分辨不出來"),
+    "sample too small": ("sample too small", "樣本太少"),
 }
 WINDOW = {
     "gao_overlap": ("Gao overlap", "Gao 重疊期"),
@@ -98,15 +101,61 @@ WINDOW = {
     "balt_overlap": ("Baltussen overlap", "Baltussen 重疊期"),
     "balt_after": ("after Baltussen's data", "Baltussen 資料之後"),
 }
-SMALL = ("sample too small", "樣本太少")
 NULL_LABEL = {
     "0": ("0", "0"),
     "always-long success": ("always-long success", "一直做多的勝率"),
+    "no-skill R² k/(n-1)": ("no-skill R² k/(n-1)", "無技能 R² k/(n-1)"),
+}
+NOTE = {  # the analysis' row notes (part1.py), in both languages; an unknown note fails loud
+    (
+        "FOMC = scheduled statement days; Gao's table says 'FOMC minutes release at 2:15 pm', "
+        "which matches statement days before 2013"
+    ): (
+        (
+            "FOMC = scheduled statement days (Gao's table says minutes at 2:15 pm, which matches "
+            "statement days before 2013)"
+        ),
+        "FOMC＝排定的聲明日（Gao 的表寫會議紀錄 2:15 pm，和 2013 年以前的聲明日吻合）",
+    ),
+    "terciles of the whole window (the paper's way; uses the future)": (
+        "terciles of the whole window (the paper's way; uses the future)",
+        "用整段期間的三分位（論文的做法；用到未來）",
+    ),
+    "cut-offs from earlier sessions only": (
+        "cut-offs from earlier sessions only",
+        "只用之前的日子定界線",
+    ),
+    "percentiles of the whole window (the paper's way); first jump": (
+        "percentiles of the whole window (the paper's way); first jump",
+        "用整段期間的百分位（論文的做法）；第一次跳動",
+    ),
+    "percentiles of earlier sessions only; first jump": (
+        "percentiles of earlier sessions only; first jump",
+        "只用之前日子的百分位；第一次跳動",
+    ),
+    "recursive monthly refit vs the expanding mean; earlier sessions are the warm-up": (
+        "recursive monthly refit against the expanding mean; earlier sessions are the warm-up",
+        "每月遞迴重新估計，對照擴張平均；更早的交易日是暖機期",
+    ),
+    "same regression as the 0.062 row": (
+        "same regression as the 0.062 row (B1)",
+        "和 0.062 那一列（B1）是同一個迴歸",
+    ),
+    (
+        "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
+        "diversification: no verdict"
+    ): (
+        (
+            "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
+            "diversification: no verdict"
+        ),
+        "論文的數字是 17 種期貨的 1/N 投組，分散效果會拉高 Sharpe：不做判定",
+    ),
 }
 ROW_COLS = (
     "item", "paper", "window", "variant", "term", "metric", "n", "ours", "se", "se_kind", "lo",
     "hi", "paper_value", "paper_source", "paper_market", "null_value", "null_label", "se_null",
-    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "note",
+    "d_null", "d_paper", "verdict", "mde", "small_sample", "cw_p", "loo_min", "note",
 )  # fmt: skip
 
 
@@ -129,7 +178,9 @@ def _num(metric: str, v: float | None) -> str:
     elif metric == "sharpe":
         text = f"{v:.2f}"
     else:
-        assert metric in ("r2", "r2_os", "ann_mean", "success"), f"unknown metric {metric!r}"
+        assert metric in ("r2", "r2_os", "ann_mean", "success", "success_excess"), (
+            f"unknown metric {metric!r}"
+        )
         text = f"{v * 100:.2f}"
     return "0.00" if text == "-0.00" else text
 
@@ -152,19 +203,25 @@ def plot_cumulative(cum: pl.DataFrame, path: Path, gao_end: date, balt_end: date
         "always_long": "always long",
     }
     colors = {"eta_r1": "C0", "eta_rod": "C1", "always_long": "black"}
+    always_long_grey = "grey"  # at 1 bp: dotted grey, so the two always-long lines differ
     for rule, label in names.items():
         for cost in sorted(cum["cost_bp"].unique()):
             s = cum.filter((pl.col("rule") == rule) & (pl.col("cost_bp") == cost)).sort("session")
             assert s.height, f"no series for {rule} at {cost} bp"
+            if rule == "always_long":  # 0 bp dashed black, 1 bp dotted grey
+                color, ls = ("black", "--") if cost == 0 else (always_long_grey, ":")
+            else:
+                color, ls = colors[rule], "-" if cost == 0 else ":"
             ax.plot(
-                s["session"].to_list(), s["wealth"].to_numpy(), color=colors[rule], lw=1.1,
-                ls="--" if rule == "always_long" else ("-" if cost == 0 else ":"),
+                s["session"].to_list(), s["wealth"].to_numpy(), color=color, lw=1.1, ls=ls,
                 label=f"{label}, {cost:g} bp per side",
             )  # fmt: skip
     _marks(ax, gao_end, balt_end)
     ax.axhline(1.0, color="grey", lw=0.6)
-    ax.set_ylabel("wealth (start = 1), last half-hour only")
-    ax.set_title("Cumulative wealth of the two rules and always-long (dashed)")
+    ax.set_ylabel(f"wealth (start = 1), {RET['r13'][0]} only")
+    ax.set_title(
+        f"Cumulative wealth of trading {RET['r13'][0]}: the two rules and always long (dashed, dotted)"
+    )
     ax.legend(loc="upper left", fontsize=7, ncol=2)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -191,7 +248,9 @@ def plot_rolling(rolling: pl.DataFrame, path: Path, gao_end: date, balt_end: dat
         ax.set_ylabel(f"slope on {RET[sig][0]}", fontsize=8)
         ax.legend(loc="upper right", fontsize=7)
     axes[1].set_xlabel(f"window ending on ({config.PART1_REPORT_ROLLING_WINDOW}-session windows)")
-    axes[0].set_title("Rolling slope of the last half-hour return (bands per window, not joint)")
+    axes[0].set_title(
+        f"Rolling slope of {RET['r13'][0]} on the signals (bands per window, not joint)"
+    )
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -202,7 +261,7 @@ TEXT = {
     "en": {
         "lang": "en",
         "title": "Part 1: replicating Gao et al. and Baltussen et al. on SPY",
-        "h1": "Part 1: do the first half-hour and the overnight return predict the last half-hour? ({kind})",
+        "h1": "Part 1: does {r1}, or {rod}, predict {r13}? ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
         "warn": "Data window {start} to {end}. Not yet fact-checked.",
         "count": "<p><b>{count_line}</b></p>",
@@ -217,16 +276,25 @@ TEXT = {
         "x1": (
             "One line per item, term and variant. The columns are our sample inside the paper's "
             "data window (\"overlap\") and after the paper's data ended (\"after\"): our "
-            "number, our number +/- 2 standard errors, the verdict, and the smallest effect the "
-            "sample could detect (mde, 80% power under the 2-SE rule). The paper's number is "
-            "beside its source and market. Slopes are plain numbers; R2, annual mean and success "
+            "number, the no-skill value it is compared with, our number +/- 2 standard errors, the "
+            "verdict, and the smallest effect the sample could detect (mde, 80% power under the "
+            "2-SE rule). R2 rows also show the smallest R2 after dropping any one day (leave-one-out "
+            "minimum). Always-long rows are the baseline: the paper's own always-long figure sits "
+            "beside them, with no verdict. The paper's number is beside its source and market. Slopes are plain numbers; R2, annual mean and success "
             "rate are percents. Verdict: replicated = different from the no-skill value "
             "(more than 2 SE) and within 2 SE of the paper; not replicated = more than 2 SE "
-            "from the paper; cannot tell = neither. Rows without a paper number, the 15:59 "
-            "check and the cost rows carry no verdict."
+            "from the paper; cannot tell = neither; sample too small = fewer than 250 days (run and "
+            "shown, not judged). The success rate itself carries no verdict: the verdict is on "
+            "the success rate minus always-long's, against the paper's difference. Rows without a "
+            "paper number, the 15:59 check, the cost rows and the always-long rows carry no verdict."
         ),
         "t2": "Verdicts by window",
-        "x2": "Rows that carry a verdict, counted per window.",
+        "x2": (
+            "Rows that carry a verdict, counted per window. Only the main and the earlier-sessions-only "
+            "variants are counted; the whole-window cut-off rows show their verdict in the table but are "
+            "not counted (they use later data, and each has an earlier-sessions-only twin). Rows "
+            "with fewer than 250 days are counted as sample too small."
+        ),
         "t3": "Out-of-sample R2: Clark-West p",
         "x3": "One-sided Clark-West p of the recursive forecast against the expanding mean.",
         "t4": "Figures",
@@ -240,13 +308,25 @@ TEXT = {
             "which the closing auction adds, is kept). The 15:59 bar versions are the check rows."),
             ("Gao's data runs 1993-02 to 2013-12 and Baltussen's ends 2020-05-01; our data starts "
             "2011-01. \"Overlap\" is therefore short for Gao (three years)."),
+            ("Official close, known by the session: each dividend period is adjusted with the "
+            "previous period's constant, which uses earlier sessions only. The one exception is the "
+            "first period (2011-01-03 to the first ex-date), which uses its own median."),
+            ("No-skill values: R2 rows are compared with k/(n-1), the in-sample R2 expected with "
+            "k = 2 regressors and no skill, and tested by the Newey-West Wald test that both "
+            "slopes are 0 (more than 2 means p below 0.0455). Success rows are compared with "
+            "always-long's success rate."),
+            ("The past-only tercile rows in the Gao overlap cover 2012-13 only (2011 is the "
+            "warm-up for the cut-offs), and their classes are uneven."),
+            ("The B1 and B5 (15:30 to close) rows are the same regression; B5's carries no verdict."),
+            ("B6 compares a single ETF with the paper's 1/N portfolio of 17 futures, whose Sharpe "
+            "is raised by diversification, so its Sharpe and success-excess rows carry no verdict."),
             ("The paper's number is treated as fixed: the error range is ours only, because the "
             "overlap samples share data with the papers."),
             ("Out-of-sample forecasts start 2012-01-03 (2011 is the warm-up), so the Gao overlap "
             "has about 500 forecasts."),
             ("FOMC days are scheduled statement days. Gao's table says \"FOMC minutes release at "
             "2:15 pm\", which matches statement days before 2013."),
-            ("Large-move rows (B3): the jump is the first half-hour boundary at which the return "
+            ("Large-move rows (B3): the jump is the first 30-minute boundary (10:00, 10:30, ...) at which the return "
             "from the previous close is below the 10th or above the 90th percentile of "
             "close-to-close returns. The paper does not say which jump it uses when there are "
             "several; this is our choice."),
@@ -264,6 +344,7 @@ TEXT = {
         "cols": {
             "what": "item / term / variant", "paper": "paper", "source": "source (market)",
             "n": "n", "ours": "ours", "range": "+/- 2 SE", "verdict": "verdict", "mde": "mde",
+            "null": "no-skill", "loo": "leave-one-out min", "note": "note",
             "overlap": "overlap with the paper's data", "after": "after the paper's data ended",
             "window": "window", "count": "rows",
         },
@@ -271,7 +352,7 @@ TEXT = {
     "zh": {
         "lang": "zh-Hant-TW",
         "title": "第一部分：用 SPY 重現 Gao 等人與 Baltussen 等人",
-        "h1": "第一部分：前半小時與隔夜報酬能預測最後半小時嗎？（{kind}）",
+        "h1": "第一部分：{r1}，或{rod}，能預測{r13}嗎？（{kind}）",
         "synthetic": "合成資料（只檢查流程，不是結果）",
         "warn": "資料期間 {start} 到 {end}。尚未經過查核。",
         "count": "<p><b>{count_line}</b></p>",
@@ -284,14 +365,20 @@ TEXT = {
         "t1": "和論文的比較",
         "x1": (
             "每個項目、變數、設定一行。兩組欄位分別是我們的樣本在論文資料期間內（「重疊」）與論文資料結束之後"
-            "（「之後」）：我們的數字、我們的數字 ± 2 個標準誤、判定，以及樣本能偵測的最小效應"
-            "（mde，在 2 倍標準誤規則下檢定力 80%）。論文的數字和它的出處、市場並列。斜率是一般數字；"
+            "（「之後」）：我們的數字、拿來比較的無技能值、我們的數字 ± 2 個標準誤、判定，以及樣本能偵測的最小效應"
+            "（mde，在 2 倍標準誤規則下檢定力 80%）。R² 的列另外顯示拿掉任何一天後最小的 R²（留一法最小值）。"
+            "一直做多的列是基準，論文自己的一直做多數字和它並列，不做判定。論文的數字和它的出處、市場並列。斜率是一般數字；"
             "R²、年化平均報酬、勝率以百分比表示。判定：重現＝和無技能值差超過 2 個標準誤，"
             "且和論文數字差不到 2 個標準誤；沒重現＝和論文數字差超過 2 個標準誤；分辨不出來＝兩者皆非。"
-            "沒有論文數字的列、15:59 檢查列和成本列不做判定。"
+            "樣本太少＝少於 250 天（照做並顯示，不判定）。勝率本身不做判定：判定看的是勝率減一直做多的勝率，"
+            "對照論文的差距。沒有論文數字的列、15:59 檢查列、成本列和一直做多的列不做判定。"
         ),
         "t2": "各期間的判定",
-        "x2": "只算有判定的列，依期間計數。",
+        "x2": (
+            "只算有判定的列，依期間計數。只計主要設定與「只用之前的日子定界線」的列；"
+            "「用整段期間定界線」的列在表中仍顯示判定，但不計入（它們用到之後的資料，且各有一列只用之前日子的對照）。"
+            "少於 250 天的列計入「樣本太少」。"
+        ),
         "t3": "樣本外 R²：Clark-West p",
         "x3": "遞迴預測對擴張平均的單邊 Clark-West p 值。",
         "t4": "圖",
@@ -304,10 +391,18 @@ TEXT = {
             "收盤拍賣造成的逐日差距保留）。用 15:59 分鐘棒算的版本是檢查列。"),
             ("Gao 的資料是 1993-02 到 2013-12，Baltussen 的資料到 2020-05-01 結束；我們的資料從 2011-01 開始。"
             "所以 Gao 的「重疊」期間很短（三年）。"),
+            ("官方收盤價，只用當時已知的資訊：每個股息期間用前一個股息期間的常數調整，只讀更早的交易日。"
+            "唯一例外是第一個期間（2011-01-03 到第一個除息日），用它自己的中位數。"),
+            ("無技能值：R² 的列拿 k/(n-1) 比較（k = 2 個自變數、沒有技能時樣本內 R² 的期望值），並用 Newey-West "
+            "Wald 檢定兩個斜率皆為 0（大於 2 即 p 小於 0.0455）。勝率的列拿一直做多的勝率比較。"),
+            "Gao 重疊期間「只用之前的日子」的三分位列只涵蓋 2012-13 年（2011 年是定界線的暖機期），各類天數不均。",
+            "B1 與 B5（15:30 到收盤）的列是同一個迴歸；B5 的那一列不做判定。",
+            ("B6 拿單一 ETF 對照論文 17 種期貨的 1/N 投組，分散效果會拉高投組的 Sharpe，"
+            "所以它的 Sharpe 與勝率差距列不做判定。"),
             "論文的數字視為固定：誤差範圍只含我們這邊的，因為重疊樣本和論文共用資料。",
             "樣本外預測從 2012-01-03 開始（2011 年是暖機期），所以 Gao 的重疊期間約 500 筆預測。",
             "FOMC 日指排定的聲明日。Gao 的表寫「FOMC 會議紀錄 2:15 pm 公布」，和 2013 年以前的聲明日吻合。",
-            ("大幅跳動列（B3）：跳動是第一個半小時時點，其相對前一收盤的報酬低於收盤對收盤報酬的第 10 百分位"
+            ("大幅跳動列（B3）：跳動是第一個整點或半點時點，其相對前一收盤的報酬低於收盤對收盤報酬的第 10 百分位"
             "或高於第 90 百分位。論文沒說有多次跳動時用哪一次；這是我們的選擇。"),
             "「用整個期間算分位」是論文的做法，會用到之後的資料；「只用更早的交易日」才是交易者當時做得到的版本。",
         ],
@@ -322,23 +417,33 @@ TEXT = {
         "cols": {
             "what": "項目／變數／設定", "paper": "論文數字", "source": "出處（市場）",
             "n": "天數", "ours": "我們的數字", "range": "± 2 標準誤", "verdict": "判定",
-            "mde": "mde", "overlap": "和論文資料重疊的期間", "after": "論文資料結束之後",
+            "mde": "mde", "null": "無技能值", "loo": "留一法最小值", "note": "附註", "overlap": "和論文資料重疊的期間", "after": "論文資料結束之後",
             "window": "期間", "count": "列數",
         },
     },
 }  # fmt: skip
 
 
+SUB = ("n", "null", "ours", "range", "loo", "verdict", "mde")
+
+
+def _null_cell(r: dict, metric: str, lang: str) -> str:
+    """The no-skill value with its label ("0" alone when the value is zero)."""
+    label = _lab(NULL_LABEL, r["null_label"], lang, "no-skill label")
+    if r["null_label"] == "0":
+        return "0"
+    return f"{_num(metric, r['null_value'])} ({label})"
+
+
 def _cell_group(r: dict | None, metric: str, lang: str) -> str:
-    """The five cells (n, ours, range, verdict, mde) of one window; blank when it has no row."""
+    """The cells of one window (SUB); blank when it has no row."""
     if r is None:
-        return "<td></td>" * 5
+        return "<td></td>" * len(SUB)
     verdict = "" if r["verdict"] is None else _lab(VERDICT, r["verdict"], lang, "verdict")
-    if r["small_sample"]:
-        verdict = f"{verdict} ({_lab({'s': SMALL}, 's', lang, 'small')})".strip()
+    loo = "" if r["loo_min"] is None else _num(metric, r["loo_min"])
     cells = [
-        str(r["n"]), _num(metric, r["ours"]),
-        f"[{_num(metric, r['lo'])}, {_num(metric, r['hi'])}]", verdict, _num(metric, r["mde"]),
+        str(r["n"]), _null_cell(r, metric, lang), _num(metric, r["ours"]),
+        f"[{_num(metric, r['lo'])}, {_num(metric, r['hi'])}]", loo, verdict, _num(metric, r["mde"]),
     ]  # fmt: skip
     return "".join(f"<td>{escape(c)}</td>" for c in cells)
 
@@ -346,17 +451,16 @@ def _cell_group(r: dict | None, metric: str, lang: str) -> str:
 def _comparison(rows: pl.DataFrame, lang: str) -> str:
     tx = TEXT[lang]
     c = tx["cols"]
-    group = lambda k: f'<th class="g" colspan="5">{escape(c[k])}</th>'
-    head1 = f'<tr><th colspan="3"></th>{group("overlap")}{group("after")}</tr>'
-    sub = ("n", "ours", "range", "verdict", "mde")
+    group = lambda k: f'<th class="g" colspan="{len(SUB)}">{escape(c[k])}</th>'
+    head1 = f'<tr><th colspan="3"></th>{group("overlap")}{group("after")}<th></th></tr>'
     head2 = (
         "<tr>"
         + "".join(f"<th>{escape(c[k])}</th>" for k in ("what", "paper", "source"))
-        + "".join(f"<th>{escape(c[k])}</th>" for k in sub * 2)
-        + "</tr>"
+        + "".join(f"<th>{escape(c[k])}</th>" for k in SUB * 2)
+        + f"<th>{escape(c['note'])}</th></tr>"
     )
     body = []
-    n_cols = 3 + 10
+    n_cols = 3 + 2 * len(SUB) + 1
     for item, (paper, title_en, title_zh) in ITEMS.items():
         part = rows.filter(pl.col("item") == item)
         assert part.height, f"no rows for item {item!r}"
@@ -397,23 +501,31 @@ def _comparison(rows: pl.DataFrame, lang: str) -> str:
                     _lab(METRIC, key[2], lang, "metric"),
                 )
             )
+            notes = {w["note"] for w in grp.values() if w["note"] is not None}
+            assert len(notes) <= 1, f"{item} {key}: different notes in the two windows"
+            note = "" if not notes else _lab(NOTE, notes.pop(), lang, "note")
             body.append(
                 "<tr>"
                 f'<td class="wrap">{escape(what)}</td>'
                 f"<td>{escape(_num(key[2], paper_v))}</td>"
                 f'<td class="wrap">{escape(src)}</td>'
                 f"{_cell_group(grp.get('overlap'), key[2], lang)}"
-                f"{_cell_group(grp.get('after'), key[2], lang)}</tr>"
+                f"{_cell_group(grp.get('after'), key[2], lang)}"
+                f'<td class="wrap">{escape(note)}</td></tr>'
             )
     return (
         f'<div class="t" style="overflow-x:auto"><table>{head1}{head2}{"".join(body)}</table></div>'
     )
 
 
+COUNTED_VARIANTS = ("main", "past_only")
+
+
 def _verdict_counts(rows: pl.DataFrame, lang: str) -> str:
+    """Verdicts per window, main and past_only variants only (full_window rows are not counted)."""
     c = TEXT[lang]["cols"]
-    rated = rows.filter(pl.col("verdict").is_not_null())
-    assert rated.height, "no row carries a verdict"
+    rated = rows.filter(pl.col("verdict").is_not_null() & pl.col("variant").is_in(COUNTED_VARIANTS))
+    assert rated.height, "no row carries a counted verdict"
     head = "".join(
         f"<th>{escape(h)}</th>"
         for h in (c["window"], *(_lab(VERDICT, v, lang, "verdict") for v in VERDICT))
@@ -472,7 +584,7 @@ def _render(lang: str, s: dict, rows: pl.DataFrame, imgs: dict[str, str]) -> str
     return f"""<!doctype html><html lang="{tx["lang"]}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(tx["title"])}</title><style>{CSS}</style></head><body>
-<h1>{escape(tx["h1"].format(kind=kind))}</h1>
+<h1>{escape(tx["h1"].format(kind=kind, **(RET_EN if lang == "en" else RET_ZH)))}</h1>
 <p class="warn">{escape(warn)}</p>
 <div class="box">{tx["count"].format(count_line=escape(s["count_line"]))}<p>{escape(tx["papers"])}</p></div>
 {"".join(body)}
