@@ -32,7 +32,7 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     before = (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID)
     cli.main(["reproduce", "--synthetic", "--out", str(tmp_path)])
     lines = capsys.readouterr().out.strip().splitlines()
-    printed, printed2 = lines[-2], lines[-1]
+    printed, printed2, printed3 = lines[-3], lines[-2], lines[-1]  # part 1 needs the P1-2 branch
     assert (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID) == before, (
         "config not restored"
     )
@@ -91,6 +91,9 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     assert not [c for c in zh_all if CODE.search(c)], "code name shown in a Chinese table"
 
     _check_chapter2(tmp_path, printed2)
+    assert printed3.startswith("part 1: 13 items, ")
+    assert printed3 in (tmp_path / "part1_report.html").read_text()
+    assert printed3 in (tmp_path / "part1_report_zh.html").read_text()
 
 
 def _check_chapter2(out, printed):

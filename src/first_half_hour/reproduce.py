@@ -20,7 +20,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import mlflow
@@ -37,6 +37,7 @@ from first_half_hour import (
     panel,
     regress,
     report,
+    report_part1,
     returns,
     synthetic,
     timing,
@@ -68,6 +69,21 @@ SYNTHETIC_CH2_OVERRIDES = {
 """Chapter 2, synthetic: train on 2016, forecast 2017 (untuned), validate on 2018, judge 2019-20."""
 
 
+SYNTHETIC_PART1_OVERRIDES = {
+    "DATA_START": date(2016, 1, 1),
+    "DATA_END": date(2020, 12, 31),
+    "PART1_WINDOWS": {
+        "gao_overlap": (date(2017, 1, 3), date(2018, 12, 31)),
+        "gao_after": (date(2019, 1, 2), date(2020, 12, 31)),
+        "balt_overlap": (date(2017, 1, 3), date(2019, 6, 28)),
+        "balt_after": (date(2019, 7, 1), date(2020, 12, 31)),
+    },
+    "PART1_BOOT_REPS": 100,
+    "PART1_OOS_START": date(2017, 1, 3),
+}
+"""Part 1, synthetic: one warm-up year (past the tercile warm-up), then two years per window."""
+
+
 @contextmanager
 def _synthetic_config(overrides: dict = SYNTHETIC_OVERRIDES):
     saved = {k: getattr(config, k) for k in overrides}
@@ -80,8 +96,24 @@ def _synthetic_config(overrides: dict = SYNTHETIC_OVERRIDES):
             setattr(config, k, v)
 
 
-def _write_stub_daily(daily: Path, first_day: date = date(2017, 12, 1)) -> None:
-    """Stub daily files in the formats the real loaders read (see private/DATA.md)."""
+def _dense_events(first_day: date) -> tuple[list[date], list[date]]:
+    """FOMC meetings (every 6th Tuesday whose Wednesday is a session) and monthly CPI days, so the
+    Part 1 news subsets have enough rows to estimate in synthetic mode."""
+    sessions = set(calendar.sessions(first_day, date(2021, 1, 31))["session"].to_list())
+    tuesdays = [d for d in sorted(sessions) if d.weekday() == 1]
+    unknown = {date(2020, 3, 3), date(2020, 3, 17)}  # the stub's emergency / cancelled dates
+    fomc = [d for d in tuesdays[::6] if d + timedelta(days=1) in sessions and d not in unknown]
+    cpi = [min(s for s in sessions if s >= date(y, m, 12)) for y in range(first_day.year, 2021)
+           for m in range(1, 13) if first_day <= date(y, m, 12) <= date(2020, 12, 15)]  # fmt: skip
+    return fomc, cpi
+
+
+def _write_stub_daily(
+    daily: Path, first_day: date = date(2017, 12, 1), dense_events: bool = False
+) -> None:
+    """Stub daily files in the formats the real loaders read (see private/DATA.md).
+
+    `dense_events` (Part 1) replaces the three FOMC and two CPI dates with regular schedules."""
     daily.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(SYNTHETIC_SEED)
     days = pl.date_range(first_day, date(2020, 12, 31), "1d", eager=True)
@@ -91,19 +123,21 @@ def _write_stub_daily(daily: Path, first_day: date = date(2017, 12, 1)) -> None:
         pl.DataFrame(
             {config.FRED_DATE_COLUMN: days.cast(pl.String), name: vals.round(2)}
         ).write_csv(daily / f"{name}.csv")
-    pl.DataFrame({"date": [date(2018, 3, 20), date(2018, 9, 25), date(2019, 6, 18)]}).write_csv(
-        daily / "fomc_meetings.csv"
-    )
+    fomc = [date(2018, 3, 20), date(2018, 9, 25), date(2019, 6, 18)]
+    releases = {
+        "date": [date(2018, 2, 14), date(2018, 3, 9), date(2019, 4, 10), date(2019, 6, 7)],
+        "release": ["cpi", "payroll", "cpi", "payroll"],
+    }
+    if dense_events:
+        fomc, cpi = _dense_events(first_day)
+        payroll = [date(2018, 3, 9), date(2019, 6, 7)]
+        releases = {"date": cpi + payroll, "release": ["cpi"] * len(cpi) + ["payroll"] * 2}
+    pl.DataFrame({"date": fomc}).write_csv(daily / "fomc_meetings.csv")
     pl.DataFrame({"date": [date(2020, 3, 3)]}).write_csv(daily / "fomc_emergency.csv")
     pl.DataFrame({"date": [date(2020, 3, 17)], "cancelled_on": [date(2020, 3, 15)]}).write_csv(
         daily / "fomc_cancelled.csv"
     )
-    pl.DataFrame(
-        {
-            "date": [date(2018, 2, 14), date(2018, 3, 9), date(2019, 4, 10), date(2019, 6, 7)],
-            "release": ["cpi", "payroll", "cpi", "payroll"],
-        }
-    ).write_csv(daily / "release_dates.csv")
+    pl.DataFrame(releases).write_csv(daily / "release_dates.csv")
     pl.DataFrame(
         {"ex_date": [date(2018, 3, 16), date(2018, 6, 15), date(2019, 3, 15), date(2019, 6, 21)],
          "amount": [1.0, 1.1, 1.2, 1.3]}
@@ -319,9 +353,106 @@ def _chapter2(data: Path, daily: Path, out: Path, synth: bool) -> str:
     return chapter2.run(data, daily, out, False, config.BOOTSTRAP_REPS)
 
 
+def _log_part1(rows: pl.DataFrame) -> tuple[list[str], list[str]]:
+    """One MLflow parent run per item, one nested run per row; returns (parent ids, child ids)."""
+    parents, children = [], []
+    for item in rows["item"].unique(maintain_order=True):
+        sub = rows.filter(pl.col("item") == item)
+        with mlflow.start_run(run_name=f"part1 {item}") as parent:
+            parents.append(parent.info.run_id)
+            mlflow.log_params({"item": item, "rows": sub.height})
+            for r in sub.iter_rows(named=True):
+                name = "|".join((r["window"], r["variant"], r["term"], r["metric"]))
+                with mlflow.start_run(run_name=name, nested=True) as child:
+                    children.append(child.info.run_id)
+                    mlflow.log_params(
+                        {k: v for k, v in r.items() if isinstance(v, str) and k != "note"}
+                    )
+                    mlflow.log_metrics(
+                        {
+                            _metric_name(k): float(v)
+                            for k, v in r.items()
+                            if isinstance(v, int | float)
+                            and not isinstance(v, bool)
+                            and math.isfinite(v)
+                        }
+                    )
+    return parents, children
+
+
+def _run_part1(data: Path, daily: Path, out: Path, synth: bool) -> tuple[list[str], list[str]]:
+    from first_half_hour import part1  # P1-2's module, imported where it is used
+
+    cal = calendar.sessions(config.DATA_START, config.DATA_END)
+    table = part1.part1_table(data, daily, cal)
+    ctrl = controls.controls(table, cal, daily)
+    rows = part1.part1_rows(table, ctrl)
+    assert set(rows["item"]) == set(report_part1.ITEMS), "items differ from the report's list"
+    d = out / "part1"  # per-day series: private (D7)
+    d.mkdir(parents=True, exist_ok=True)
+    rows.write_parquet(d / "rows.parquet")
+    cum = part1.cumulative(table)
+    roll = part1.rolling(table, config.PART1_REPORT_ROLLING_WINDOW)
+    cum.write_parquet(d / "cumulative.parquet")
+    roll.write_parquet(d / "rolling.parquet")
+    gao_end = config.PART1_WINDOWS["gao_overlap"][1]
+    balt_end = config.PART1_WINDOWS["balt_overlap"][1]
+    fig = out / "figures"
+    report_part1.plot_cumulative(cum, fig / f"{config.PART1_FIGURES[0]}.png", gao_end, balt_end)
+    report_part1.plot_rolling(roll, fig / f"{config.PART1_FIGURES[1]}.png", gao_end, balt_end)
+    parents, children = _log_part1(rows)
+    summary = {
+        "synthetic": synth, "data_window": [config.DATA_START.isoformat(), config.DATA_END.isoformat()],
+        "bootstrap_reps": config.PART1_BOOT_REPS, "n_items": len(parents), "n_rows": rows.height,
+        "windows": {k: [v[0].isoformat(), v[1].isoformat()] for k, v in config.PART1_WINDOWS.items()},
+    }  # fmt: skip
+    (out / "part1_summary.json").write_text(json.dumps(summary, indent=2))
+    return parents, children
+
+
+def _part1(data: Path, daily: Path, out: Path, synth: bool) -> str:
+    name = "part1-synthetic" if synth else "part1"
+    started_ms = _start_store(out, name)
+    if synth:
+        with tempfile.TemporaryDirectory() as tmp, _synthetic_config(SYNTHETIC_PART1_OVERRIDES):
+            root = Path(tmp)
+            synthetic.write_synthetic(
+                root / "raw", ["SPY"], date(2016, 1, 4), date(2020, 12, 31),
+                SYNTHETIC_BETA, SYNTHETIC_SEED,
+            )  # fmt: skip
+            _write_stub_daily(root / "daily", date(2015, 11, 1), dense_events=True)
+            cal = calendar.sessions(date(2016, 1, 1), date(2020, 12, 31))
+            stub_table = returns.daily_table(root / "raw", "SPY", cal)
+            synthetic.write_stub_official_close(
+                root / "raw", root / "daily", stub_table, SYNTHETIC_SEED
+            )
+            parents, children = _run_part1(root / "raw", root / "daily", out, True)
+    else:
+        parents, children = _run_part1(data, daily, out, False)
+    n_parent, n_child = len(parents), len(children)
+    assert n_parent == len(report_part1.ITEMS), f"expected 13 item runs, made {n_parent}"
+    exp = mlflow.get_experiment_by_name(name)
+    found = MlflowClient().search_runs(
+        [exp.experiment_id],
+        filter_string=f"attributes.start_time >= {started_ms}",
+        max_results=50_000,
+    )
+    assert len(found) == n_parent + n_child, (
+        f"MLflow holds {len(found)}, logged {n_parent + n_child}"
+    )
+    count_line = f"part 1: {n_parent} items, {n_parent + n_child} runs ({n_child} nested)"
+    path = out / "part1_summary.json"
+    summary = json.loads(path.read_text()) | {"count_line": count_line, "n_runs": len(found)}
+    path.write_text(json.dumps(summary, indent=2))
+    report_part1.write_part1_report(out)
+    return count_line
+
+
 def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: str = "all") -> str:
-    """Run chapter 1 and/or 2 end to end; return the count line(s), asserted against MLflow."""
-    assert chapter in ("1", "2", "all"), f"chapter must be 1, 2 or all, got {chapter!r}"
+    """Run chapter 1, 2 and/or part 1 end to end; return the count line(s), asserted against MLflow."""
+    assert chapter in ("1", "2", "part1", "all"), (
+        f"chapter must be 1, 2, part1 or all, got {chapter!r}"
+    )
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     lines = []
@@ -329,4 +460,6 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: 
         lines.append(_chapter1(data, daily, out, synth))
     if chapter in ("2", "all"):
         lines.append(_chapter2(data, daily, out, synth))
+    if chapter in ("part1", "all"):
+        lines.append(_part1(data, daily, out, synth))
     return "\n".join(lines)

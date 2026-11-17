@@ -206,8 +206,9 @@ PART1_JUMP_PCT: tuple[float, float] = (0.10, 0.90)
 """Percentiles of daily close-to-close returns that define a Baltussen 'jump'."""
 OFFICIAL_CLOSE_FILE: str = "daily_close/SPY_yahoo_daily.csv"
 """The official close CSV, relative to the bars' data root."""
-OFFICIAL_CLOSE_MAX_PERIOD_STEP: float = 3e-4
-"""Adjacent dividend periods' calibration constants c_p may differ by less than 3 bp."""
+OFFICIAL_CLOSE_MAX_PERIOD_STEP: float = 5e-4
+"""Adjacent dividend periods' calibration constants c_p may differ by less than 5 bp (largest real step:
++3.0 bp into the period starting 2020-03-20, Covid; the rest are 2 bp or less)."""
 OFFICIAL_CLOSE_MAX_GAP: float = 0.015
 """|official close on the bars' basis / 15:59 bar - 1| must be below 150 bp on every session."""
 OFFICIAL_DIVIDEND_TOL: float = 0.005
@@ -251,3 +252,11 @@ PAPER: dict[tuple[str, str, str], tuple[float, str, str]] = {
 }  # fmt: skip
 PAPER_ALWAYS_LONG_SUCCESS: dict[str, float] = {"gao_rule": 0.5042, "balt_rule": 0.53}
 """The papers' own always-long success rates, quoted in the rows' notes."""
+
+# Part 1 report (figures and report; P1-3)
+PART1_REPORT_ROLLING_WINDOW: int = 756
+"""Sessions in the Part 1 rolling-slope figure (three years)."""
+PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.062}
+"""Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
+PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
+"""File stems under `<out>/figures/`."""

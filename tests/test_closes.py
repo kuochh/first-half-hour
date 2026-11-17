@@ -57,7 +57,7 @@ def test_factor_and_per_period_constant(tmp_path):
     ("tweak", "message"),
     [
         ({"ratio": {date(2019, 3, 20): 1.02}}, "from the 15:59 bar"),  # 200 bp gap on one day
-        ({"ratio": {d: 1.0 + 4e-4 for d in DAYS[6:]}}, "period constants differ"),  # 4 bp step
+        ({"ratio": {d: 1.0 + 7e-4 for d in DAYS[6:]}}, "period constants differ"),  # 7 bp step
         ({"csv": lambda c: c.select(**{"Stock Splits": pl.when(pl.col("date") == EX).then(2.0).otherwise(0.0)})}, "split"),
         ({"div": pl.DataFrame({"ex_date": [EX], "amount": [1.01]})}, "amounts differ"),
         ({"div": pl.DataFrame({"ex_date": [date(2019, 3, 19)], "amount": [1.0]})}, "dividend dates differ"),
