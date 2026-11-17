@@ -142,14 +142,14 @@ NOTE = {  # the analysis' row notes (part1.py), in both languages; an unknown no
         "和 0.062 那一列（B1）是同一個迴歸",
     ),
     (
-        "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
-        "diversification: no verdict"
+        "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe and success rate differ from "
+        "a single market's (diversification): no verdict"
     ): (
         (
-            "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
-            "diversification: no verdict"
+            "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe and success rate differ from "
+            "a single market's (diversification): no verdict"
         ),
-        "論文的數字是 17 種期貨的 1/N 投組，分散效果會拉高 Sharpe：不做判定",
+        "論文的數字是 17 種期貨的 1/N 投組，分散效果讓 Sharpe 和勝率都和單一市場不同：不做判定",
     ),
 }
 ROW_COLS = (
@@ -263,7 +263,7 @@ TEXT = {
         "title": "Part 1: replicating Gao et al. and Baltussen et al. on SPY",
         "h1": "Part 1: does {r1}, or {rod}, predict {r13}? ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
-        "warn": "Data window {start} to {end}. Not yet fact-checked.",
+        "warn": "Data window {start} to {end}. Fact-checked 2026-11-16: every number recomputed independently from the raw data.",
         "count": "<p><b>{count_line}</b></p>",
         "papers": (
             "Paper versions held: Gao, Han, Li and Zhou, working paper of October 2014 "
@@ -304,7 +304,7 @@ TEXT = {
         "notes": [
             ("Official close: the 16:00 price is Yahoo's official close, moved onto the minute bars' "
             "split- and dividend-adjusted basis with one constant per dividend period (the median "
-            "gap to the 15:59 bar is zero in every period by construction; the day-to-day gap, "
+            "gap to the 15:59 bar stays within about 3 bp of zero in every period; the day-to-day gap, "
             "which the closing auction adds, is kept). The 15:59 bar versions are the check rows."),
             ("Gao's data runs 1993-02 to 2013-12 and Baltussen's ends 2020-05-01; our data starts "
             "2011-01. \"Overlap\" is therefore short for Gao (three years)."),
@@ -354,7 +354,7 @@ TEXT = {
         "title": "第一部分：用 SPY 重現 Gao 等人與 Baltussen 等人",
         "h1": "第一部分：{r1}，或{rod}，能預測{r13}嗎？（{kind}）",
         "synthetic": "合成資料（只檢查流程，不是結果）",
-        "warn": "資料期間 {start} 到 {end}。尚未經過查核。",
+        "warn": "資料期間 {start} 到 {end}。2026-11-16 已查核：每個數字都由獨立的方法從原始資料重算。",
         "count": "<p><b>{count_line}</b></p>",
         "papers": (
             "使用的論文版本：Gao、Han、Li、Zhou，2014 年 10 月工作論文（「Gao WP Oct 2014」）；"
@@ -387,7 +387,7 @@ TEXT = {
         "t5": "附註",
         "notes": [
             ("官方收盤價：16:00 價格是 Yahoo 的官方收盤價，每個股息期間用一個常數調整到分鐘棒"
-            "（已調整分割與股息）的基準上（各期間和 15:59 分鐘棒的差距中位數依定義為零；"
+            "（已調整分割與股息）的基準上（各期間和 15:59 分鐘棒的差距中位數都在 0 上下約 3 bp 內；"
             "收盤拍賣造成的逐日差距保留）。用 15:59 分鐘棒算的版本是檢查列。"),
             ("Gao 的資料是 1993-02 到 2013-12，Baltussen 的資料到 2020-05-01 結束；我們的資料從 2011-01 開始。"
             "所以 Gao 的「重疊」期間很短（三年）。"),
@@ -428,7 +428,10 @@ SUB = ("n", "null", "ours", "range", "loo", "verdict", "mde")
 
 
 def _null_cell(r: dict, metric: str, lang: str) -> str:
-    """The no-skill value with its label ("0" alone when the value is zero)."""
+    """The no-skill value with its label ("0" alone when the value is zero). Blank on the
+    always-long rows: they are the baseline themselves."""
+    if r["variant"] == "always_long":
+        return ""
     label = _lab(NULL_LABEL, r["null_label"], lang, "no-skill label")
     if r["null_label"] == "0":
         return "0"

@@ -29,8 +29,8 @@ CHECK_VARIANTS = ("check_1559", "cost_1bp")
 SMALL_VERDICT = "sample too small"
 NULL_R2_LABEL = "no-skill R² k/(n-1)"
 BALT_PORTFOLIO_NOTE = (
-    "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe is raised by "
-    "diversification: no verdict"
+    "the paper's figure is for a 1/N portfolio of 17 futures, whose Sharpe and success rate differ from "
+    "a single market's (diversification): no verdict"
 )
 COLUMNS = (
     "item", "paper", "window", "variant", "term", "metric", "n", "ours", "se", "se_kind", "lo",
