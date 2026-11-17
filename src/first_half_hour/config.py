@@ -181,3 +181,11 @@ THRESHOLD_COST_BP: float = 1.0
 PERMUTATION_REPEATS: int = 10
 PERMUTATION_SEED: int = 20260512
 """Permutation-importance shuffles per feature and the fixed seed."""
+
+# Part 1 report (figures and report; P1-3)
+PART1_REPORT_ROLLING_WINDOW: int = 756
+"""Sessions in the Part 1 rolling-slope figure (three years)."""
+PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.062}
+"""Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
+PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
+"""File stems under `<out>/figures/`."""

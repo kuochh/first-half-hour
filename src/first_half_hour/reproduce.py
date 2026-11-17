@@ -37,6 +37,7 @@ from first_half_hour import (
     panel,
     regress,
     report,
+    report_part1,
     returns,
     synthetic,
     timing,
@@ -66,6 +67,20 @@ SYNTHETIC_CH2_OVERRIDES = {
     "CH2_SPA_REPS": 100,
 }
 """Chapter 2, synthetic: train on 2016, forecast 2017 (untuned), validate on 2018, judge 2019-20."""
+
+
+SYNTHETIC_PART1_OVERRIDES = {
+    "DATA_START": date(2016, 1, 1),
+    "DATA_END": date(2020, 12, 31),
+    "PART1_WINDOWS": {
+        "gao_overlap": (date(2017, 1, 3), date(2018, 12, 31)),
+        "gao_after": (date(2019, 1, 2), date(2020, 12, 31)),
+        "balt_overlap": (date(2017, 1, 3), date(2019, 6, 28)),
+        "balt_after": (date(2019, 7, 1), date(2020, 12, 31)),
+    },
+    "PART1_BOOT_REPS": 100,
+}
+"""Part 1, synthetic: one warm-up year (past the tercile warm-up), then two years per window."""
 
 
 @contextmanager
@@ -319,9 +334,101 @@ def _chapter2(data: Path, daily: Path, out: Path, synth: bool) -> str:
     return chapter2.run(data, daily, out, False, config.BOOTSTRAP_REPS)
 
 
+def _log_part1(rows: pl.DataFrame) -> tuple[list[str], list[str]]:
+    """One MLflow parent run per item, one nested run per row; returns (parent ids, child ids)."""
+    parents, children = [], []
+    for item in rows["item"].unique(maintain_order=True):
+        sub = rows.filter(pl.col("item") == item)
+        with mlflow.start_run(run_name=f"part1 {item}") as parent:
+            parents.append(parent.info.run_id)
+            mlflow.log_params({"item": item, "rows": sub.height})
+            for r in sub.iter_rows(named=True):
+                name = "|".join((r["window"], r["variant"], r["term"], r["metric"]))
+                with mlflow.start_run(run_name=name, nested=True) as child:
+                    children.append(child.info.run_id)
+                    mlflow.log_params(
+                        {k: v for k, v in r.items() if isinstance(v, str) and k != "note"}
+                    )
+                    mlflow.log_metrics(
+                        {
+                            _metric_name(k): float(v)
+                            for k, v in r.items()
+                            if isinstance(v, int | float)
+                            and not isinstance(v, bool)
+                            and math.isfinite(v)
+                        }
+                    )
+    return parents, children
+
+
+def _run_part1(data: Path, daily: Path, out: Path, synth: bool) -> tuple[list[str], list[str]]:
+    from first_half_hour import part1  # P1-2's module, imported where it is used
+
+    cal = calendar.sessions(config.DATA_START, config.DATA_END)
+    table = part1.part1_table(data, daily, cal)
+    ctrl = controls.controls(table, cal, daily)
+    rows = part1.part1_rows(table, ctrl)
+    assert set(rows["item"]) == set(report_part1.ITEMS), "items differ from the report's list"
+    d = out / "part1"  # per-day series: private (D7)
+    d.mkdir(parents=True, exist_ok=True)
+    rows.write_parquet(d / "rows.parquet")
+    cum, roll = part1.cumulative(table), part1.rolling(table)
+    cum.write_parquet(d / "cumulative.parquet")
+    roll.write_parquet(d / "rolling.parquet")
+    gao_end = config.PART1_WINDOWS["gao_overlap"][1]
+    balt_end = config.PART1_WINDOWS["balt_overlap"][1]
+    fig = out / "figures"
+    report_part1.plot_cumulative(cum, fig / f"{config.PART1_FIGURES[0]}.png", gao_end, balt_end)
+    report_part1.plot_rolling(roll, fig / f"{config.PART1_FIGURES[1]}.png", gao_end, balt_end)
+    parents, children = _log_part1(rows)
+    summary = {
+        "synthetic": synth, "data_window": [config.DATA_START.isoformat(), config.DATA_END.isoformat()],
+        "bootstrap_reps": config.PART1_BOOT_REPS, "n_items": len(parents), "n_rows": rows.height,
+        "windows": {k: [v[0].isoformat(), v[1].isoformat()] for k, v in config.PART1_WINDOWS.items()},
+    }  # fmt: skip
+    (out / "part1_summary.json").write_text(json.dumps(summary, indent=2))
+    return parents, children
+
+
+def _part1(data: Path, daily: Path, out: Path, synth: bool) -> str:
+    name = "part1-synthetic" if synth else "part1"
+    started_ms = _start_store(out, name)
+    if synth:
+        with tempfile.TemporaryDirectory() as tmp, _synthetic_config(SYNTHETIC_PART1_OVERRIDES):
+            root = Path(tmp)
+            synthetic.write_synthetic(
+                root / "raw", ["SPY"], date(2016, 1, 4), date(2020, 12, 31),
+                SYNTHETIC_BETA, SYNTHETIC_SEED,
+            )  # fmt: skip
+            _write_stub_daily(root / "daily", date(2015, 11, 1))
+            synthetic.write_stub_close(root / "raw", root / "daily_close")  # P1-2's helper
+            parents, children = _run_part1(root / "raw", root / "daily", out, True)
+    else:
+        parents, children = _run_part1(data, daily, out, False)
+    n_parent, n_child = len(parents), len(children)
+    assert n_parent == len(report_part1.ITEMS), f"expected 13 item runs, made {n_parent}"
+    exp = mlflow.get_experiment_by_name(name)
+    found = MlflowClient().search_runs(
+        [exp.experiment_id],
+        filter_string=f"attributes.start_time >= {started_ms}",
+        max_results=50_000,
+    )
+    assert len(found) == n_parent + n_child, (
+        f"MLflow holds {len(found)}, logged {n_parent + n_child}"
+    )
+    count_line = f"part 1: {n_parent} items, {n_parent + n_child} runs ({n_child} nested)"
+    path = out / "part1_summary.json"
+    summary = json.loads(path.read_text()) | {"count_line": count_line, "n_runs": len(found)}
+    path.write_text(json.dumps(summary, indent=2))
+    report_part1.write_part1_report(out)
+    return count_line
+
+
 def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: str = "all") -> str:
-    """Run chapter 1 and/or 2 end to end; return the count line(s), asserted against MLflow."""
-    assert chapter in ("1", "2", "all"), f"chapter must be 1, 2 or all, got {chapter!r}"
+    """Run chapter 1, 2 and/or part 1 end to end; return the count line(s), asserted against MLflow."""
+    assert chapter in ("1", "2", "part1", "all"), (
+        f"chapter must be 1, 2, part1 or all, got {chapter!r}"
+    )
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     lines = []
@@ -329,4 +436,6 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: 
         lines.append(_chapter1(data, daily, out, synth))
     if chapter in ("2", "all"):
         lines.append(_chapter2(data, daily, out, synth))
+    if chapter in ("part1", "all"):
+        lines.append(_part1(data, daily, out, synth))
     return "\n".join(lines)
