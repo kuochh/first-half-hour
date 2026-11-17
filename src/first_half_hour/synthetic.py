@@ -7,7 +7,7 @@ set `config.DATA_START` / `config.DATA_END` to the same window (whole months) be
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, timedelta
 from itertools import pairwise
 from pathlib import Path
 
@@ -129,3 +129,50 @@ def write_synthetic(
             price = float(frame["close"][n_bars - 1])
             frames.append(frame)
         write_bars(root, symbol, pl.concat(frames))
+
+
+SD_OFFICIAL_GAP = 0.0004
+"""Daily gap (sd, simple return) between the stub official close and the 15:59 bar."""
+
+
+def write_stub_official_close(
+    data_root: Path, daily_dir: Path, table: pl.DataFrame, seed: int
+) -> Path:
+    """Write the stub `daily_close/SPY_yahoo_daily.csv` that `closes.official_close` reads.
+
+    `table` is the daily table (session, p_close). The adjusted official close is the 15:59 bar
+    close times (1 + N(0, 4 bp)); the raw Close is rescaled by the CRSP factor of the dividends in
+    `daily_dir/spy_dividends.csv` (ex-dates inside the table's span), so the basis check passes.
+    Going backwards, Close_i = adj_i / f_{i+1} + D when i+1 is an ex-date (Close_i - D = adj_i/f_{i+1}).
+    Rows cover every XNYS session from the one before the table's first to its last.
+    """
+    first, last = table["session"].min(), table["session"].max()
+    cal = calendar.sessions(first - timedelta(days=10), last)
+    cal = cal.filter(pl.col("session") <= last).select("session")
+    cal = cal.join(table.select("session", "p_close"), on="session", how="left")
+    cal = cal.with_columns(pl.col("p_close").backward_fill().forward_fill())
+    rng = np.random.default_rng([seed, 99])
+    adj = cal["p_close"].to_numpy() * (1 + rng.normal(0.0, SD_OFFICIAL_GAP, cal.height))
+    days = cal["session"].to_list()
+    div_file = pl.read_csv(daily_dir / "spy_dividends.csv", schema_overrides={"ex_date": pl.Date})
+    amount = dict(div_file.filter(pl.col("ex_date").is_between(first, last)).iter_rows())
+    assert set(amount) <= set(days), f"ex-dates that are not sessions: {set(amount) - set(days)}"
+    close = np.empty(cal.height)
+    f_next = 1.0  # factor of the day after i
+    div = np.zeros(cal.height)
+    for i in range(cal.height - 1, -1, -1):
+        d_next = amount.get(days[i + 1], 0.0) if i + 1 < cal.height else 0.0
+        close[i] = adj[i] / f_next + d_next
+        if d_next:
+            f_next *= 1 - d_next / close[i]
+        div[i] = amount.get(days[i], 0.0)
+    frame = pl.DataFrame(
+        {
+            "date": days, "Open": close, "High": close, "Low": close, "Close": close,
+            "Adj Close": close, "Volume": 1, "Dividends": div, "Stock Splits": 0.0,
+        }
+    )  # fmt: skip
+    path = data_root / "daily_close" / "SPY_yahoo_daily.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.write_csv(path)
+    return path

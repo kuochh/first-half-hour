@@ -181,3 +181,73 @@ THRESHOLD_COST_BP: float = 1.0
 PERMUTATION_REPEATS: int = 10
 PERMUTATION_SEED: int = 20260512
 """Permutation-importance shuffles per feature and the fixed seed."""
+
+
+# Part 1 (replication of Gao et al. and Baltussen et al. on SPY)
+PART1_WINDOWS: dict[str, tuple[date, date]] = {
+    "gao_overlap": (date(2011, 1, 3), date(2013, 12, 31)),
+    "gao_after": (date(2014, 1, 2), date(2026, 8, 31)),
+    "balt_overlap": (date(2011, 1, 3), date(2020, 5, 1)),
+    "balt_after": (date(2020, 5, 4), date(2026, 8, 31)),
+}
+"""Part 1 windows, inclusive. Gao's data ends 2013-12; Baltussen's ends 2020-05-01 (Table A1, ES)."""
+PART1_BOOT_REPS: int = 2_000
+"""Stationary-bootstrap replications of every Part 1 bootstrap SE (reproduce --synthetic lowers it)."""
+PART1_OOS_START: date = date(2012, 1, 3)
+"""First Part 1 OOS forecast session (2011 is the one-year warm-up, as in Gao's first window)."""
+PART1_SMALL_N: int = 250
+"""A Part 1 row with fewer observations is flagged small_sample."""
+PART1_VERDICT_Z: float = 2.0
+PART1_MDE_Z: float = 2.0 + 0.84
+"""Verdict threshold (2 SE) and minimum detectable effect multiplier (2 + 0.84: 80% power)."""
+PART1_COST_BP: float = 1.0
+"""Cost per side of the `cost_1bp` variants."""
+PART1_JUMP_PCT: tuple[float, float] = (0.10, 0.90)
+"""Percentiles of daily close-to-close returns that define a Baltussen 'jump'."""
+OFFICIAL_CLOSE_FILE: str = "daily_close/SPY_yahoo_daily.csv"
+"""The official close CSV, relative to the bars' data root."""
+OFFICIAL_CLOSE_MAX_PERIOD_STEP: float = 3e-4
+"""Adjacent dividend periods' calibration constants c_p may differ by less than 3 bp."""
+OFFICIAL_CLOSE_MAX_GAP: float = 0.015
+"""|official close on the bars' basis / 15:59 bar - 1| must be below 150 bp on every session."""
+OFFICIAL_DIVIDEND_TOL: float = 0.005
+"""Yahoo and data/daily/spy_dividends.csv amounts must agree within this (dollars per share)."""
+
+# Paper values keyed (item, term, metric): (value, source, market). Coefficients in Baltussen's tables are x100 in the paper;
+# divided by 100 here. Versions held: "Gao WP Oct 2014", "Baltussen SSRN Aug 2020".
+_GAO = "Gao WP Oct 2014"
+_BALT = "Baltussen SSRN Aug 2020"
+_SPY = "SPY"
+_FUT = "pooled equity-index futures"
+PAPER: dict[tuple[str, str, str], tuple[float, str, str]] = {
+    ("gao_slope", "r1", "slope"): (0.069, f"{_GAO}, Table 1 col 1", _SPY),
+    ("gao_r12", "r12", "slope"): (0.118, f"{_GAO}, Table 1 col 2", _SPY),
+    ("gao_joint", "r1", "slope"): (0.068, f"{_GAO}, Table 1 col 3", _SPY),
+    ("gao_joint", "r12", "slope"): (0.114, f"{_GAO}, Table 1 col 3", _SPY),
+    ("gao_vol_tercile", "low", "slope"): (0.023, f"{_GAO}, Table 2", _SPY),
+    ("gao_vol_tercile", "mid", "slope"): (0.054, f"{_GAO}, Table 2", _SPY),
+    ("gao_vol_tercile", "high", "slope"): (0.072, f"{_GAO}, Table 2", _SPY),
+    ("gao_oos_r2", "r1", "r2_os"): (0.0169, f"{_GAO}, Table 3", _SPY),
+    ("gao_rule", "rule", "ann_mean"): (0.0667, f"{_GAO}, Table 5", _SPY),
+    ("gao_rule", "rule", "sharpe"): (1.08, f"{_GAO}, Table 5", _SPY),
+    ("gao_rule", "rule", "success"): (0.5437, f"{_GAO}, Table 5", _SPY),
+    ("gao_news", "FOMC", "r2"): (0.110, f"{_GAO}, Table 11", _SPY),
+    ("gao_news", "non-FOMC", "r2"): (0.025, f"{_GAO}, Table 11", _SPY),
+    ("gao_news", "CPI", "r2"): (0.050, f"{_GAO}, Table 11", _SPY),
+    ("gao_news", "non-CPI", "r2"): (0.025, f"{_GAO}, Table 11", _SPY),
+    ("balt_slope", "rod", "slope"): (0.062, f"{_BALT}, Table B1 (ES)", "S&P 500 E-mini futures"),
+    ("balt_horse", "r1", "slope"): (0.011, f"{_BALT}, Table 3 Panel A", _FUT),
+    ("balt_horse", "rod", "slope"): (0.037, f"{_BALT}, Table 3 Panel A", _FUT),
+    ("balt_large_move", "x_jump", "slope"): (0.052, f"{_BALT}, Table 10 (rLH)", _FUT),
+    ("balt_reversal", "k1", "slope"): (-0.145, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_reversal", "k2", "slope"): (-0.29, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_reversal", "k3", "slope"): (-0.28, f"{_BALT}, Table 11 Panel A", _FUT),
+    ("balt_last_k", "r13", "slope"): (0.060, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_last_k", "r_last15", "slope"): (0.028, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_last_k", "r_last5", "slope"): (0.019, f"{_BALT}, Table 12 Panel A", "S&P 500 cash index"),
+    ("balt_rule", "rule", "ann_mean"): (0.0686, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
+    ("balt_rule", "rule", "sharpe"): (1.73, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
+    ("balt_rule", "rule", "success"): (0.55, f"{_BALT}, Table 6 Panel A", "equity-index futures, 1/N portfolio"),
+}  # fmt: skip
+PAPER_ALWAYS_LONG_SUCCESS: dict[str, float] = {"gao_rule": 0.5042, "balt_rule": 0.53}
+"""The papers' own always-long success rates, quoted in the rows' notes."""
