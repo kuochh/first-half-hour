@@ -599,9 +599,11 @@ def _headline_frames(fc, tf, feats, groups, rules, boot, head_model, qs):
                          "std_diff": (m1 - m0) / sd if sd > 0 else 0.0})  # fmt: skip
     picked = pl.DataFrame(rows).sort(pl.col("std_diff").abs(), descending=True)
     per_year = (
-        te.select("year").with_columns(picked=pl.Series(pick), net=pl.Series(net * pick))
+        te.select("year").with_columns(picked=pl.Series(pick), net=pl.Series(net * pick),
+                                       net_all=pl.Series(net))
         .group_by("year", maintain_order=True)
-        .agg(n_days=pl.len(), n_picked=pl.col("picked").sum(), net_sum=pl.col("net").sum())
+        .agg(n_days=pl.len(), n_picked=pl.col("picked").sum(), net_sum=pl.col("net").sum(),
+             mean_net_af=pl.col("net_all").mean())
         .with_columns(share=pl.col("n_picked") / pl.col("n_days"),
                       mean_net_picked=pl.col("net_sum") / pl.col("n_picked"))
         .drop("net_sum")

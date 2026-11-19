@@ -61,7 +61,8 @@ def fake_frames(skill: bool = True) -> dict[str, pl.DataFrame]:
         "mean_other": [0.05] * 22, "std_diff": [(-1) ** i * 0.05 * i for i in range(22)],
     })  # fmt: skip
     per_year = pl.DataFrame({"year": list(range(2014, 2027)), "n_picked": [50] * 13,
-                             "n_days": [250] * 13})  # fmt: skip
+                             "n_days": [250] * 13, "mean_net_picked": [0.0001] * 13,
+                             "mean_net_af": [-0.0001] * 13})  # fmt: skip
     return {"grid": grid, "rules": pl.DataFrame(rules), "quintiles": quint, "groups": groups,
             "picked": picked, "per_year": per_year}  # fmt: skip
 

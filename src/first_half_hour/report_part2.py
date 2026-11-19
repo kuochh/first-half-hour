@@ -283,6 +283,11 @@ TEXT = {
             "The other model ({model}): d_af {d_af:.1f}, d_bm {d_bm:.1f}, d_0 {d_0:.1f} "
             "(share of test days traded {cov:.1f}%)."
         ),
+        "fragile": (
+            "How firm is d_af? 2014 to 2020-05-01: {pre:.2f}; 2020-05-04 on: {post:.2f}; all test days "
+            "without 2020-02 to 2020-04: {nocovid:.2f}; with the expanding cut-off pool: {exp:.2f}; "
+            "the other model: {other:.2f}. Only the full period with the rolling pool is above 2."
+        ),
         "skillline": (
             "Out-of-sample AUC at the headline cell: {model1} {auc1:.3f}, {model2} {auc2:.3f} (0.5 = no skill). "
             "Log loss: {model1} {ll1:.4f}, {model2} {ll2:.4f}, against {base:.4f} for a constant forecast of "
@@ -346,11 +351,11 @@ TEXT = {
             "rule": "rule", "cost": "cost (bp)", "trades": "trades", "mean": "net per trade (bp)",
             "sharpe": "Sharpe", "hit": "hit rate", "diff": "minus always follow (bp)",
             "cov": "share of days traded",
-            "split": "period", "year": "year", "picked": "days picked", "days": "test days",
+            "split": "period", "year": "year", "picked": "days picked", "days": "test days", "ypick": "net per picked trade (bp)", "yaf": "always follow, net per trade (bp)",
             "feature": "feature", "mp": "mean on picked days", "mo": "mean on other days",
-            "sd": "standardised difference", "step": "inputs", "added": "added", "auc": "AUC",
-            "top": "top-{q}% net per trade (bp)", "tau": "decision time", "cell": "{c} bp: value (SE)", "ccov": "{c} bp: share of days",
-            "cauc": "{c} bp: AUC (0.5 = no skill)", "cll": "{c} bp: log loss (constant)",
+            "sd": "standardised difference", "step": "inputs", "added": "added", "auc": "AUC (0.5 = no skill)",
+            "top": "top-{q}% net per trade (bp)", "tau": "decision time", "cell": "{c}: value (SE)", "ccov": "{c}: share of days",
+            "cauc": "{c}: AUC (0.5 = no skill)", "cll": "{c}: log loss (constant)",
             "c0": "0 bp (= sign agreement)", "cn": "{c} bp",
         },
         "alt": {"q": "Mean net per trade by group of days", "c": "Cumulative wealth",
@@ -384,6 +389,10 @@ TEXT = {
         ),
         "other": (
             "另一個模型（{model}）：d_af {d_af:.1f}、d_bm {d_bm:.1f}、d_0 {d_0:.1f}（交易了 {cov:.1f}% 的測試日）。"
+        ),
+        "fragile": (
+            "d_af 有多穩？2014 到 2020-05-01：{pre:.2f}；2020-05-04 之後：{post:.2f}；全部測試日但拿掉 2020 年 2 到 4 月："
+            "{nocovid:.2f}；改用一路累積的門檻資料：{exp:.2f}；另一個模型：{other:.2f}。只有「全期、滾動門檻」超過 2。"
         ),
         "skillline": (
             "主要格子的樣本外 AUC：{model1} {auc1:.3f}、{model2} {auc2:.3f}（0.5＝沒有預測力）。"
@@ -432,11 +441,11 @@ TEXT = {
             "rule": "規則", "cost": "成本（bp）", "trades": "交易筆數", "mean": "每筆淨報酬（bp）",
             "sharpe": "Sharpe", "hit": "命中率", "diff": "減一律跟著做（bp）",
             "cov": "交易日比例",
-            "split": "期間", "year": "年", "picked": "挑出的日子", "days": "測試日",
+            "split": "期間", "year": "年", "picked": "挑出的日子", "days": "測試日", "ypick": "挑出的日子每筆淨報酬（bp）", "yaf": "一律跟著做每筆淨報酬（bp）",
             "feature": "特徵", "mp": "挑出日的平均", "mo": "其他日的平均",
-            "sd": "標準化差距", "step": "輸入", "added": "新增", "auc": "AUC",
-            "top": "前 {q}% 每筆淨報酬（bp）", "tau": "決策時間", "cell": "{c} bp：數值（SE）", "ccov": "{c} bp：日子比例",
-            "cauc": "{c} bp：AUC（0.5＝沒有預測力）", "cll": "{c} bp：對數損失（固定預測）",
+            "sd": "標準化差距", "step": "輸入", "added": "新增", "auc": "AUC（0.5＝沒有預測力）",
+            "top": "前 {q}% 每筆淨報酬（bp）", "tau": "決策時間", "cell": "{c}：數值（SE）", "ccov": "{c}：日子比例",
+            "cauc": "{c}：AUC（0.5＝沒有預測力）", "cll": "{c}：對數損失（固定預測）",
             "c0": "0 bp（＝方向相同）", "cn": "{c} bp",
         },
         "alt": {"q": "各組日子的每筆平均淨報酬", "c": "累積財富",
@@ -520,15 +529,18 @@ def _splits_table(rules: pl.DataFrame, model: str, lang: str) -> str:
 
 def _per_year_table(per_year: pl.DataFrame, lang: str) -> str:
     c = TEXT[lang]["cols"]
-    rows = [[str(r["year"]), str(r["n_picked"]), str(r["n_days"])]
-            for r in per_year.sort("year").iter_rows(named=True)]  # fmt: skip
-    return _table([c["year"], c["picked"], c["days"]], rows)
+    rows = [[str(r["year"]), str(r["n_picked"]), str(r["n_days"]), _bp(r["mean_net_picked"]),
+             _bp(r["mean_net_af"])] for r in per_year.sort("year").iter_rows(named=True)]  # fmt: skip
+    return _table([c["year"], c["picked"], c["days"], c["ypick"], c["yaf"]], rows)
 
 
 def _quintile_table(quintiles: pl.DataFrame, model: str, lang: str) -> str:
     c = TEXT[lang]["cols"]
+    q = _cell(quintiles, model).sort("group")
     rows = [[str(r["group"]), str(r["n"]), _pm(r["mean_net"], r["se"]), _pm(r["hit"], r["hit_se"], "pct")]
-            for r in _cell(quintiles, model).sort("group").iter_rows(named=True)]  # fmt: skip
+            for r in q.iter_rows(named=True)]  # fmt: skip
+    rows.append([_rule_label("always_follow", None, lang), str(int(q["n"].sum())),
+                 _bp(float(q["af_mean_net"][0])), ""])  # fmt: skip
     return _table(["", c["trades"], c["mean"], c["hit"]], rows)
 
 
@@ -564,8 +576,14 @@ BP_FEATURES = ("abs_s", "on_aligned", "intra_aligned", "rv_sofar", "rv_fh", "ran
                "last30_aligned", "yest_s_aligned", "yest_r13_aligned")  # fmt: skip
 
 
-def _feat_value(feature: str, v: float) -> str:
+PER_MINUTE = ("rv_sofar", "rv_fh")
+"""Volatility features measured per one-minute return."""
+
+
+def _feat_value(feature: str, v: float, lang: str) -> str:
     """Return and volatility features in bp (x 1e4), the rest plain; 3 significant figures."""
+    if feature in PER_MINUTE:
+        return f"{_sig3(v * 1e4)} " + ("bp per minute" if lang == "en" else "bp／分鐘")
     return f"{_sig3(v * 1e4)} bp" if feature in BP_FEATURES else _sig3(v)
 
 
@@ -576,16 +594,17 @@ def _picked_table(picked: pl.DataFrame, lang: str) -> str:
         .sort("a", descending=True)
         .head(config.PART2_REPORT_TOP_FEATURES)
     )
-    rows = [[_lab(FEAT, r["feature"], lang, "feature"), _feat_value(r["feature"], r["mean_picked"]),
-             _feat_value(r["feature"], r["mean_other"]), f"{r['std_diff']:.2f}"] for r in top.iter_rows(named=True)]  # fmt: skip
+    rows = [[_lab(FEAT, r["feature"], lang, "feature"), _feat_value(r["feature"], r["mean_picked"], lang),
+             _feat_value(r["feature"], r["mean_other"], lang), f"{r['std_diff']:.2f}"] for r in top.iter_rows(named=True)]  # fmt: skip
     return _table([c["feature"], c["mp"], c["mo"], c["sd"]], rows)
 
 
-def _groups_table(groups: pl.DataFrame, lang: str) -> str:
+def _groups_table(groups: pl.DataFrame, af_mean_net: float, lang: str) -> str:
     c = TEXT[lang]["cols"]
     c_top = c["top"].format(q=_q(config.PART2_REPORT_Q))
     rows = [[_lab(FEAT, r["step"].lstrip("+"), lang, "input step"), _feat_list(r["features_added"], lang),
              f"{r['auc']:.3f}", _pm(r["top20_mean_net"], r["se"])] for r in groups.iter_rows(named=True)]  # fmt: skip
+    rows.append([_rule_label("always_follow", None, lang), "", "0.5", _bp(af_mean_net)])
     return _table([c["step"], c["added"], c["auc"], c_top], rows)
 
 
@@ -613,6 +632,18 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
     other = _lab(MODEL, s["other_model"], lang, "model")
     other_line = tx["other"].format(model=other, d_af=s["other_d_af"], d_bm=s["other_d_bm"],
                                     d_0=s["other_d_0"], cov=s["other_coverage"] * 100)  # fmt: skip
+    hr = f["rules"].filter(
+        (pl.col("tau") == TAU) & (pl.col("c_bp") == C_MAIN) & (pl.col("model") == model)
+        & (pl.col("rule") == "model") & (pl.col("q") == config.PART2_REPORT_Q)
+        & (pl.col("c_eval_bp") == C_MAIN)
+    )  # fmt: skip
+    d_split = {r["split"]: r["diff_vs_af"] / r["diff_vs_af_se"] for r in hr.iter_rows(named=True)}
+    ep0 = s["expanding_pool"][model]
+    fragile_line = tx["fragile"].format(
+        pre=d_split.get("pre_2020_05", float("nan")), post=d_split.get("post_2020_05", float("nan")),
+        nocovid=d_split.get("no_covid", float("nan")),
+        exp=ep0["diff_af"] / ep0["se_af"], other=s["other_d_af"],
+    )  # fmt: skip
     groups_line = tx["groups"].format(
         tb=s["top_minus_bottom"] * 1e4, tb2=2 * s["top_minus_bottom_se"] * 1e4
     )
@@ -634,7 +665,7 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
     groups = f["groups"]
     inputs = (
         p(tx["skipped"].format(q=q)) if groups.height == 0
-        else p(tx["x7"].format(q=q)) + _groups_table(groups, lang)
+        else p(tx["x7"].format(q=q)) + _groups_table(groups, float(_cell(f["quintiles"], model)["af_mean_net"][0]), lang)
     )  # fmt: skip
     assert (groups.height == 0) == (not s["skill"]), "groups frame and the skill gate disagree"
     body = [
@@ -680,7 +711,7 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
 <title>{escape(tx["title"])}</title><style>{CSS}</style></head><body>
 <h1>{escape(tx["h1"].format(kind=kind))}</h1>
 <p class="warn">{escape(warn)}</p>
-<div class="box">{tx["count"].format(count_line=escape(s["count_line"]))}<p>{verdict}</p>{p(numbers)}{p(other_line)}{p(groups_line)}{p(skill_line)}{p(fits)}</div>
+<div class="box">{tx["count"].format(count_line=escape(s["count_line"]))}<p>{verdict}</p>{p(numbers)}{p(other_line)}{p(fragile_line)}{p(groups_line)}{p(skill_line)}{p(fits)}</div>
 {"".join(body)}
 </body></html>"""
 
