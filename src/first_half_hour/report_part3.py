@@ -267,7 +267,7 @@ TEXT = {
             "ETFs, after {c} bp round trip. Annual mean in percent (zero = no gain) and Sharpe, each +/- 2 "
             "standard errors; the word is the verdict against 0."
         ),
-        "x2c": "Same rules at 0 bp and 4 bp round trip.",
+        "x2c": "Same rules at {cost} bp round trip.",
         "t3": "B: does picking days help?",
         "x3": (
             "Each cell: the model's top-{q}% days minus always following, in basis points per trade after "
@@ -280,7 +280,7 @@ TEXT = {
         "x4": (
             "Target threshold {c} bp, all test days. Net per trade in basis points, Sharpe and hit rate, "
             "each +/- 2 standard errors from a bootstrap that resamples whole days for all ETFs; the last "
-            "column is the rule minus always following, paired in the same draws. Share = share of ETF-days traded."
+            "column is the rule minus always following, paired in the same draws. Share = the share of the class's ETFs traded, averaged over days."
         ),
         "t5": "Limits",
         "limits": [
@@ -289,7 +289,7 @@ TEXT = {
             "20 cells are tested: one or two passing the first test by chance is expected, which is why the finding rule also asks for a positive gain in three robustness splits.",
             "ETFs with late starts or gaps keep what they have (section 1); the class mean uses the ETFs present each day.",
             "Half-days are left out of the model tests (B) at every decision time.",
-            "A session is kept only if the ETF traded in the 14:59 and 15:29 minutes. That is known only after the 10:00, 12:00 and 14:00 decisions, so at those times days that later turn out to have no trade in those minutes are missing from the sample. It affects most (sessions dropped in section 1): {drop}.",
+            "A session is kept only if the ETF traded in the 09:59, 14:59, 15:29 and 15:59 minutes. The later of these are known only after the 10:00, 12:00, 14:00 and 15:00 decisions (and 15:59 after 15:30), so at those times days that later turn out to have no trade in those minutes are missing from the sample. ETFs with the most sessions dropped for any reason (section 1): {drop}.",
         ],
         "t6": "Appendix: every ETF",
         "x6": "Slopes and the rule after {c} bp, per ETF and period (no pooling), each +/- 2 standard errors.",
@@ -359,7 +359,7 @@ TEXT = {
             "交易規則：順著訊號的正負號做 {r13}，該類 ETF 等權，扣除來回 {c} bp 成本。"
             "年化平均報酬（%，0＝沒有獲利）與 Sharpe，各附 ± 2 個標準誤；文字是與 0 比較的判定。"
         ),
-        "x2c": "同樣的規則，來回成本 0 bp 與 4 bp。",
+        "x2c": "同樣的規則，來回成本 {cost} bp。",
         "t3": "B：挑日子有幫助嗎？",
         "x3": (
             "每個格子：模型分數最高的 {q}% 日子減一律跟著做，單位 bp／每筆，扣除 {c} bp 後，括號內是標準誤。"
@@ -370,7 +370,7 @@ TEXT = {
         "t4": "各類別在 {tau} 的規則與基準比較",
         "x4": (
             "目標門檻 {c} bp、全部測試日。每筆淨報酬（bp）、Sharpe、命中率，各附 ± 2 個標準誤（自助法以整天為單位，"
-            "所有 ETF 一起重抽）；最後一欄是規則減一律跟著做，在同樣的重抽中配對。比例＝ETF 交易日中有交易的比例。"
+            "所有 ETF 一起重抽）；最後一欄是規則減一律跟著做，在同樣的重抽中配對。比例＝每天該類 ETF 中有交易的比例，再對天數平均。"
         ),
         "t5": "限制",
         "limits": [
@@ -379,7 +379,7 @@ TEXT = {
             "共檢定 20 個格子：光靠運氣就有一兩個通過第一關是預期之內的，所以「發現」的規則還要求三種分期的差距都是正的。",
             "較晚開始或有缺漏的 ETF 保留它有的資料（第 1 節）；類別平均用當天有資料的 ETF。",
             "模型檢定（B）在每個決策時間都排除提早收盤日。",
-            "一個交易日要保留，該 ETF 在 14:59 與 15:29 這兩分鐘必須有成交。這要到 10:00、12:00、14:00 的決策之後才知道，所以在這些時間，事後發現這兩分鐘沒有成交的日子不在樣本內。受影響最多的是（第 1 節排除的交易日數）：{drop}。",
+            "一個交易日要保留，該 ETF 在 09:59、14:59、15:29 與 15:59 這幾分鐘都必須有成交。較晚的幾分鐘要到 10:00、12:00、14:00、15:00 的決策之後才知道（15:59 則在 15:30 之後），所以在這些時間，事後發現沒有成交的日子不在樣本內。被排除交易日最多的 ETF（任何原因，見第 1 節）：{drop}。",
         ],
         "t6": "附錄：每檔 ETF",
         "x6": "每檔 ETF、每個期間的斜率與扣除 {c} bp 後的規則（不合併），各附 ± 2 個標準誤。",
@@ -669,8 +669,9 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
             _slopes_table(f["effect"], lang),
             p(fmt("x2r")),
             _rules_effect_table(f["effect"], lang, C_MAIN),
-            p(fmt("x2c")),
-            "".join(_rules_effect_table(f["effect"], lang, x) for x in (0, 4)),
+            "".join(
+                p(fmt("x2c", cost=x)) + _rules_effect_table(f["effect"], lang, x) for x in (0, 4)
+            ),
         ),
         sec(3, p(fmt("x3")), img("part3_grid", "g"), _grid_table(f["grid"], f["rules"], lang)),
         sec(4, p(fmt("x4")), _class_rules_table(f["rules"], lang)),
