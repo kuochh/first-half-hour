@@ -277,6 +277,32 @@ PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.0618}
 PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
 
+
+# Part 2 features (P2-A)
+PART2_TIMES: tuple[tuple[str, int], ...] = (
+    ("10:00", 600), ("12:00", 720), ("14:00", 840), ("15:00", 900), ("15:30", 930),
+)  # fmt: skip
+"""Decision times (label, minute of day). The price at tau is the close of the bar starting at tau - 1."""
+PART2_COSTS_RT: tuple[float, ...] = (0.0, 0.0002, 0.0004)
+"""Round-trip cost thresholds c of the targets y_c = 1 if g > c (0.0002 = 1 bp per side, the main one)."""
+PART2_GROUPS: dict[str, tuple[str, ...]] = {
+    "signal": ("abs_s", "s_rank60", "on_aligned", "intra_aligned", "d_long"),
+    "volatility": ("rv_sofar", "rv_fh", "vix_lag", "range_prev"),
+    "volume": ("vol_rel",),
+    "calendar": (
+        "fomc", "cpi", "payroll", "opex_monthly", "month_end", "quarter_end",
+        "dow_tue", "dow_wed", "dow_thu", "dow_fri",
+    ),
+    "path": ("last30_aligned", "last60_share", "hit20", "yest_s_aligned", "yest_r13_aligned"),
+}  # fmt: skip
+PART2_FEATURES: tuple[str, ...] = tuple(f for g in PART2_GROUPS.values() for f in g)
+PART2_TEST_START: date = date(2014, 1, 2)
+"""First tested session of Part 2 (the last is DATA_END); training starts with the table (2011-01-03)."""
+PART2_RANK_WINDOW: int = 60
+"""Previous sessions in s_rank60."""
+PART2_ROLL_WINDOW: int = 20
+"""Previous sessions in vol_rel and hit20."""
+
 # Part 2 models (P2-B): walk-forward, rules, baselines, bootstrap
 PART2_LOGIT_C: tuple[float, ...] = (0.01, 0.1, 1.0)
 """Inverse regularisation options of the Part 2 logit (picked per test year by last-year log loss)."""
