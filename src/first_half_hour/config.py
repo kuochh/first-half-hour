@@ -346,3 +346,17 @@ PART2_FIGURES: tuple[str, ...] = (
     "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
 )  # fmt: skip
 """File stems under `<out>/figures/`."""
+
+# Part 3 report (figures and report; P3-C)
+PART3_REPORT_TAU: str = "15:30"
+"""Decision time of the per-class rule table and the per-ETF appendix."""
+PART3_REPORT_Q: float = 0.20
+"""Share of days the grid cells trade (top-20% minus always-follow)."""
+PART3_REPORT_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+"""Shares of days in the per-class rule table."""
+PART3_REPORT_COST_BP: int = 2
+"""Round-trip cost (bp) of the main A table, the grid and the rule table."""
+PART3_FINDING_D: float = 2.0
+"""A grid cell passes the first test when d_af exceeds this many paired standard errors."""
+PART3_FIGURES: tuple[str, ...] = ("part3_effect", "part3_grid")
+"""File stems under `<out>/figures/`."""
