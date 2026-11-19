@@ -346,3 +346,16 @@ PART2_FIGURES: tuple[str, ...] = (
     "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
 )  # fmt: skip
 """File stems under `<out>/figures/`."""
+
+
+# Part 3 models (P3-B): per-ETF walk-forward, class pooling, grid, robustness
+PART3_MODEL: str = "logit"
+"""The one model of Part 3 (no re-selection; the Part 2 logit options are picked per test year)."""
+PART3_C_BP: int = 2
+"""Threshold c of the target y and evaluation cost of the main numbers, round trip, bp."""
+PART3_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+PART3_MAIN_Q: float = 0.20
+PART3_ROBUST: dict[str, str] = {"pre_2020_05": "pre", "post_2020_05": "post", "no_covid": "nocovid"}
+"""Robustness versions of each grid cell (Part 2 split names) -> grid column suffix."""
+PART3_FINDING_D: float = 2.0
+"""A grid cell is a finding if d_af > this on all test days and the difference is positive in each robustness version."""
