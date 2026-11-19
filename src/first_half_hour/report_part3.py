@@ -5,10 +5,10 @@ Reads `<out>/part3/*.parquet` (coverage, effect, grid, rules, etf_rules; written
 `reproduce._part3`); writes two figures under `<out>/figures/` and `<out>/part3_report.html` and
 `<out>/part3_report_zh.html`. Nothing is recomputed except counts that are checked against the
 summary: both pages lay out the same numbers, and a code label with no entry here fails an
-assertion instead of showing raw. Return names are the D50 ones, looked up in `report_part1.RET`.
+assertion instead of showing raw. Return names are looked up in `report_part1.RET`.
 
-Column contracts assumed (see the hand-back): `effect` has `class` (or `symbol` for ETF rows),
-period, item, metric, cost_bp, n_days, n_etfs, est, se, t, verdict, level; `grid` the P3-B columns;
+Column contracts: `effect` has `class` (or `symbol` for ETF rows),
+period, item, metric, cost_bp, n_days, n_etfs, est, se, t, verdict, level; `grid` the columns of `part3._grid`;
 `rules` and `etf_rules` the Part 2 `rules` columns with `class` / `symbol` instead of `model`,
 and `etf_rules` also `auc`.
 """
@@ -168,7 +168,7 @@ def plot_effect(effect: pl.DataFrame, path: Path) -> None:
         ax.legend(fontsize=7)
     axes[0].set_ylabel(f"slope of {ret_en['r13']} (+/- 2 SE)")
     fig.suptitle(
-        "Slope of 15:30-to-close return on the earlier signal, by class and period (zero = no effect)"
+        f"Slope of the {ret_en['r13']} return on the earlier signal, by class and period (zero = no effect)"
     )
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -235,7 +235,11 @@ TEXT = {
             "following by more than 2 paired standard errors. A cell counts as a finding only if, in "
             "addition, the gain is positive in 2014 to 2020-05-01, in 2020-05-04 on, and over all test "
             "days without 2020-02 to 2020-04: {n_find} are findings{which}. With {n_cells} cells, one or "
-            "two passing the first test by chance is expected."
+            "two passing the first test by chance is expected.{extra}"
+        ),
+        "extra": (
+            " Of the {n_find} findings, in {n_neg} the model's net per trade after {c} bp is still below "
+            "zero, and in {n_bm} the model beats the big-move rule by more than 2 paired standard errors."
         ),
         "none": "",
         "fits": "Model fits behind this page: {n_fits}, for {n_etfs} ETFs.",
@@ -246,6 +250,11 @@ TEXT = {
             "a key bar. The zero-return share is the share of sessions where the {r13} return is exactly zero "
             "(thin trading shows up here); the missing-signal share is the share where the {r1} return is missing."
         ),
+        "x1b": (
+            "Sessions that other ETFs have a forecast for but no ETF of the class has are left out of that "
+            "class's series (not filled). Per decision time: {missing}."
+        ),
+        "x1c": "none in any class",
         "t2": "A: is the effect there?",
         "x2": (
             "Class series are equal-weight means of the class's ETFs present that day. Slope of the {r13} "
@@ -276,24 +285,27 @@ TEXT = {
         "t5": "Limits",
         "limits": [
             "The close is the 15:59 bar for every ETF, including SPY in the US class; official-close SPY is shown beside it in section 2.",
-            "The bond ETFs trade thinly in the last half-hour; the zero-return share in section 1 shows it. Costs may be higher for bonds and international ETFs than the {c} bp used here.",
+            "The bond ETFs trade thinly in the {r13} window; the zero-return share in section 1 shows it. Costs may be higher for bonds and international ETFs than the {c} bp used here.",
             "20 cells are tested: one or two passing the first test by chance is expected, which is why the finding rule also asks for a positive gain in three robustness splits.",
             "ETFs with late starts or gaps keep what they have (section 1); the class mean uses the ETFs present each day.",
-            "Half-days are left out at every decision time.",
+            "Half-days are left out of the model tests (B) at every decision time.",
+            "A session is kept only if the ETF traded in the 14:59 and 15:29 minutes. That is known only after the 10:00, 12:00 and 14:00 decisions, so at those times days that later turn out to have no trade in those minutes are missing from the sample. It affects most (sessions dropped in section 1): {drop}.",
         ],
         "t6": "Appendix: every ETF",
         "x6": "Slopes and the rule after {c} bp, per ETF and period (no pooling), each +/- 2 standard errors.",
         "x6b": (
             "The model's top-{q}% days minus always following, per ETF and decision time (basis points, "
-            "after {c} bp, +/- 2 standard errors), the share of days traded and the out-of-sample AUC (0.5 = no skill)."
+            "after {c} bp, +/- 2 standard errors), the net per trade of the model and of always following (beside 0), "
+            "the share of days traded and the out-of-sample AUC (0.5 = no skill)."
         ),
         "alt": {"e": "Slopes by class and period", "g": "Top-20% days minus always follow, 20 cells"},
         "cols": {
             "etf": "ETF", "class": "class", "first": "first session", "last": "last session",
-            "kept": "sessions kept", "dropped": "sessions dropped", "zero": "share of sessions with a zero 15:30-to-close return",
+            "kept": "sessions kept", "dropped": "sessions dropped", "zero": "share of sessions with a zero {r13} return",
             "null": "share of sessions with no signal", "note": "note", "period": "period", "days": "days",
             "etfs": "ETFs", "tau": "decision time", "cell": "top-{q}% minus always follow (SE)",
             "cov": "share of days traded", "auc": "AUC (0.5 = no skill)", "finding": "finding",
+            "net_model": "model net per trade (bp, ± 2 SE)", "net_af": "always follow net per trade (bp, ± 2 SE)",
             "rule": "rule", "trades": "trades", "mean": "net per trade (bp)", "sharpe": "Sharpe",
             "hit": "hit rate", "diff": "minus always follow (bp)", "verdict": "verdict",
             "cost": "cost (bp)", "ann": "annual mean (%)", "slope": "slope",
@@ -320,7 +332,11 @@ TEXT = {
             "{n_cells} 個格子（類別 x 決策時間）中，有 {n_pass} 個格子的前 {q}% 日子比一律跟著做多出 2 個配對標準誤以上。"
             "要算「發現」，還要在 2014 到 2020-05-01、2020-05-04 之後、以及拿掉 2020 年 2 到 4 月的全部測試日"
             "三種版本中，差距都是正的：共 {n_find} 個{which}。有 {n_cells} 個格子時，"
-            "光靠運氣就有一兩個通過第一關是預期之內的。"
+            "光靠運氣就有一兩個通過第一關是預期之內的。{extra}"
+        ),
+        "extra": (
+            "這 {n_find} 個發現中，有 {n_neg} 個的模型扣除 {c} bp 後每筆淨報酬仍小於 0，"
+            "有 {n_bm} 個的模型比大幅移動規則多出 2 個配對標準誤以上。"
         ),
         "none": "",
         "fits": "這一頁背後的模型擬合：{n_fits} 次，涵蓋 {n_etfs} 檔 ETF。",
@@ -330,6 +346,10 @@ TEXT = {
             "每檔 ETF 保留它有的資料，沒有任何資料被默默丟掉。被排除的交易日是缺關鍵分鐘棒的日子。"
             "報酬為零的比例是 {r13} 報酬剛好為 0 的交易日占比（交易清淡會顯示在這裡）；訊號缺值比例是 {r1} 報酬缺值的占比。"
         ),
+        "x1b": (
+            "其他 ETF 有預測、但該類沒有任何 ETF 有預測的交易日，會從該類的序列中排除（不補值）。每個決策時間：{missing}。"
+        ),
+        "x1c": "每一類都沒有",
         "t2": "A：效應存在嗎？",
         "x2": (
             "類別序列是當天有資料的該類 ETF 的等權平均。{r13} 報酬對 {r1} 報酬、對 {rod} 報酬的斜率，"
@@ -355,24 +375,26 @@ TEXT = {
         "t5": "限制",
         "limits": [
             "所有 ETF 的收盤都用 15:59 分鐘棒，包括美國類中的 SPY；第 2 節旁邊列出用官方收盤價的 SPY。",
-            "債券 ETF 在最後半小時交易清淡，第 1 節的報酬為零比例顯示了這點。債券與海外 ETF 的成本可能比這裡用的 {c} bp 高。",
+            "債券 ETF 在 {r13} 這段時間交易清淡，第 1 節的報酬為零比例顯示了這點。債券與海外 ETF 的成本可能比這裡用的 {c} bp 高。",
             "共檢定 20 個格子：光靠運氣就有一兩個通過第一關是預期之內的，所以「發現」的規則還要求三種分期的差距都是正的。",
             "較晚開始或有缺漏的 ETF 保留它有的資料（第 1 節）；類別平均用當天有資料的 ETF。",
-            "每個決策時間都排除提早收盤日。",
+            "模型檢定（B）在每個決策時間都排除提早收盤日。",
+            "一個交易日要保留，該 ETF 在 14:59 與 15:29 這兩分鐘必須有成交。這要到 10:00、12:00、14:00 的決策之後才知道，所以在這些時間，事後發現這兩分鐘沒有成交的日子不在樣本內。受影響最多的是（第 1 節排除的交易日數）：{drop}。",
         ],
         "t6": "附錄：每檔 ETF",
         "x6": "每檔 ETF、每個期間的斜率與扣除 {c} bp 後的規則（不合併），各附 ± 2 個標準誤。",
         "x6b": (
             "模型分數最高的 {q}% 日子減一律跟著做，每檔 ETF、每個決策時間（bp，扣除 {c} bp，± 2 個標準誤），"
-            "交易日比例與樣本外 AUC（0.5＝沒有預測力）。"
+            "模型與一律跟著做的每筆淨報酬（與 0 比較）、交易日比例與樣本外 AUC（0.5＝沒有預測力）。"
         ),
         "alt": {"e": "各類別與期間的斜率", "g": "前 20% 日子減一律跟著做，20 個格子"},
         "cols": {
             "etf": "ETF", "class": "類別", "first": "第一個交易日", "last": "最後一個交易日",
-            "kept": "保留的交易日", "dropped": "被排除的交易日", "zero": "15:30 到收盤報酬為零的比例",
+            "kept": "保留的交易日", "dropped": "被排除的交易日", "zero": "{r13} 報酬為零的比例",
             "null": "訊號缺值比例", "note": "備註", "period": "期間", "days": "天數",
             "etfs": "ETF 數", "tau": "決策時間", "cell": "前 {q}% 減一律跟著做（SE）",
             "cov": "交易日比例", "auc": "AUC（0.5＝沒有預測力）", "finding": "發現",
+            "net_model": "模型每筆淨報酬（bp，± 2 SE）", "net_af": "一律跟著做每筆淨報酬（bp，± 2 SE）",
             "rule": "規則", "trades": "交易筆數", "mean": "每筆淨報酬（bp）", "sharpe": "Sharpe",
             "hit": "命中率", "diff": "減一律跟著做（bp）", "verdict": "判定",
             "cost": "成本（bp）", "ann": "年化平均報酬（%）", "slope": "斜率",
@@ -404,7 +426,8 @@ def _coverage_table(cov: pl.DataFrame, lang: str) -> str:
             _pct(r["share_r1_null"]), "; ".join(_lab(NOTE, k, lang, "coverage note") for k in note),
         ])  # fmt: skip
     head = [
-        c[k] for k in ("etf", "class", "first", "last", "kept", "dropped", "zero", "null", "note")
+        c[k].format(**_ret(lang))
+        for k in ("etf", "class", "first", "last", "kept", "dropped", "zero", "null", "note")
     ]
     return _table(head, rows)
 
@@ -470,22 +493,34 @@ def _d(v: float) -> str:
     return f"{v:.2f}"
 
 
-def _grid_table(grid: pl.DataFrame, lang: str) -> str:
+def _model_net(rules: pl.DataFrame, cls: str, tau: str) -> dict:
+    """The class's model row (top share Q, cost C_MAIN, all test days) at one decision time."""
+    sub = rules.filter(
+        (pl.col("class") == cls) & (pl.col("tau") == tau) & (pl.col("rule") == "model")
+        & ((pl.col("q") - Q).abs() < 1e-9) & (pl.col("c_eval_bp") == C_MAIN)
+        & (pl.col("split") == "all")
+    )  # fmt: skip
+    assert sub.height == 1, f"expected one model row for {cls} {tau}, got {sub.height}"
+    return sub.row(0, named=True)
+
+
+def _grid_table(grid: pl.DataFrame, rules: pl.DataFrame, lang: str) -> str:
     c = TEXT[lang]["cols"]
     rows = []
     for r in _grid_rows(grid):
+        m = _model_net(rules, r["class"], r["tau"])
         rows.append([
             _cls(r["class"], lang), r["tau"], f"{_bp(r['top20_minus_af'])} ({_bp(r['se'])})",
-            _d(r["d_af"]), _d(r["d_bm"]), _d(r["d_vol"]), _d(r["d_af_pre"]), _d(r["d_af_post"]),
+            _pm(m["mean_net"], m["se"]), _d(r["d_af"]), _d(r["d_bm"]), _d(r["d_vol"]), _d(r["d_af_pre"]), _d(r["d_af_post"]),
             _d(r["d_af_nocovid"]), _pct(r["coverage"]), f"{r['mean_auc']:.3f}",
             _lab(YESNO, bool(r["finding"]), lang, "flag"),
         ])  # fmt: skip
-    head = [c["class"], c["tau"], c["cell"].format(q=_q(Q)), c["d_af"], c["d_bm"], c["d_vol"],
+    head = [c["class"], c["tau"], c["cell"].format(q=_q(Q)), c["net_model"], c["d_af"], c["d_bm"], c["d_vol"],
             c["d_pre"], c["d_post"], c["d_nocovid"], c["cov"], c["auc"], c["finding"]]  # fmt: skip
     return _table(head, rows)
 
 
-def _findings_text(grid: pl.DataFrame, s: dict, lang: str) -> str:
+def _findings_text(grid: pl.DataFrame, rules: pl.DataFrame, s: dict, lang: str) -> str:
     rows = _grid_rows(grid)
     n_pass = sum(r["d_af"] > config.PART3_FINDING_D for r in rows)
     found = [r for r in rows if r["finding"]]
@@ -493,13 +528,48 @@ def _findings_text(grid: pl.DataFrame, s: dict, lang: str) -> str:
     assert len(found) == s["n_findings"], f"grid findings {len(found)}, summary {s['n_findings']}"
     assert all(r["d_af"] > config.PART3_FINDING_D for r in found), "a finding fails the d_af test"
     assert s["n_cells"] == len(rows), "summary and grid cell counts differ"
-    which = ""
+    which = extra = ""
     if found:
+        n_neg = sum(_model_net(rules, r["class"], r["tau"])["mean_net"] < 0 for r in found)
+        n_bm = sum(r["d_bm"] > config.PART3_FINDING_D for r in found)
+        extra = TEXT[lang]["extra"].format(n_find=len(found), n_neg=n_neg, n_bm=n_bm, c=C_MAIN)
         names = "; ".join(f"{_cls(r['class'], lang)}, {r['tau']}" for r in found)
         which = f" ({names})" if lang == "en" else f"（{names}）"
     return TEXT[lang]["findings"].format(
-        n_pass=n_pass, n_cells=len(rows), q=_q(Q), n_find=len(found), which=which
+        n_pass=n_pass, n_cells=len(rows), q=_q(Q), n_find=len(found), which=which, extra=extra
     )
+
+
+def _missing_text(s: dict, lang: str) -> str:
+    """Per class: fewest to most class-days missing across decision times (from the summary)."""
+    per: dict[str, list[int]] = {}
+    for key, n in s["class_days_missing"].items():
+        cls, tau = key.rsplit(" ", 1)
+        assert cls in config.PART3_CLASSES and tau in dict(config.PART2_TIMES), f"bad key {key!r}"
+        per.setdefault(cls, []).append(int(n))
+    assert set(per) == set(config.PART3_CLASSES), "class_days_missing lacks a class"
+    parts = []
+    for cls in config.PART3_CLASSES:
+        lo, hi = min(per[cls]), max(per[cls])
+        if hi:
+            parts.append(
+                f"{_cls(cls, lang)} {lo}"
+                + (f"{'-' if lang == 'en' else '–'}{hi}" if hi != lo else "")
+            )
+    sep = "; " if lang == "en" else "；"
+    return sep.join(parts) if parts else TEXT[lang]["x1c"]
+
+
+def _drop_text(cov: pl.DataFrame, top: int = 3) -> str:
+    """The ETFs with most sessions dropped, with the counts."""
+    worst = (
+        cov.filter(pl.col("sessions_dropped") > 0)
+        .sort("sessions_dropped", descending=True)
+        .head(top)
+    )
+    if not worst.height:
+        return "none"
+    return ", ".join(f"{r['symbol']} {r['sessions_dropped']}" for r in worst.iter_rows(named=True))
 
 
 def _rule_label(rule: str, q: float | None, lang: str) -> str:
@@ -560,13 +630,17 @@ def _etf_cells_table(etf_rules: pl.DataFrame, lang: str) -> str:
         & (pl.col("rule") == "model")
         & ((pl.col("q") - Q).abs() < 1e-9)
     )  # etf_rules covers all test days only (no splits)
+    af = etf_rules.filter((pl.col("c_eval_bp") == C_MAIN) & (pl.col("rule") == "always_follow"))
     rows = []
     for sym in [s for syms in config.PART3_CLASSES.values() for s in syms]:
         for t, _ in config.PART2_TIMES:
             r = _one(base, symbol=sym, tau=t)
-            rows.append([sym, t, _pm(r["diff_vs_af"], r["diff_vs_af_se"]), _pct(r["coverage"]),
-                         f"{r['auc']:.3f}"])  # fmt: skip
-    return _table([c["etf"], c["tau"], c["diff"], c["cov"], c["auc"]], rows)
+            a = _one(af, symbol=sym, tau=t)
+            rows.append([sym, t, _pm(r["diff_vs_af"], r["diff_vs_af_se"]),
+                         _pm(r["mean_net"], r["se"]), _pm(a["mean_net"], a["se"]),
+                         _pct(r["coverage"]), f"{r['auc']:.3f}"])  # fmt: skip
+    head = [c[k] for k in ("etf", "tau", "diff", "net_model", "net_af", "cov", "auc")]
+    return _table(head, rows)
 
 
 def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]) -> str:
@@ -583,9 +657,11 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
     )
     p = lambda text: f"<p>{escape(text)}</p>"
     fmt = lambda key, **kw: tx[key].format(c=C_MAIN, q=_q(Q), tau=TAU, **ret, **kw)
-    findings = _findings_text(f["grid"], s, lang)
+    findings = _findings_text(f["grid"], f["rules"], s, lang)
+    missing = _missing_text(s, lang)
+    drop = _drop_text(f["coverage"])
     body = [
-        sec(1, p(fmt("x1")), _coverage_table(f["coverage"], lang)),
+        sec(1, p(fmt("x1")), _coverage_table(f["coverage"], lang), p(fmt("x1b", missing=missing))),
         sec(
             2,
             p(fmt("x2")),
@@ -596,12 +672,14 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
             p(fmt("x2c")),
             "".join(_rules_effect_table(f["effect"], lang, x) for x in (0, 4)),
         ),
-        sec(3, p(fmt("x3")), img("part3_grid", "g"), _grid_table(f["grid"], lang)),
+        sec(3, p(fmt("x3")), img("part3_grid", "g"), _grid_table(f["grid"], f["rules"], lang)),
         sec(4, p(fmt("x4")), _class_rules_table(f["rules"], lang)),
         sec(
             5,
             "<ul>"
-            + "".join(f"<li>{escape(n.format(c=C_MAIN))}</li>" for n in tx["limits"])
+            + "".join(
+                f"<li>{escape(n.format(c=C_MAIN, drop=drop, **ret))}</li>" for n in tx["limits"]
+            )
             + "</ul>",
         ),
         sec(

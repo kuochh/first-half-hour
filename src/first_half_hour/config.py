@@ -348,7 +348,7 @@ PART2_FIGURES: tuple[str, ...] = (
 """File stems under `<out>/figures/`."""
 
 
-# Part 3 data (P3-A)
+# Part 3 data
 PART3_CLASSES: dict[str, tuple[str, ...]] = {
     "us_equity": ("SPY", "QQQ", "IWM", "VTI", "RSP", "XLE", "XLF"),
     "intl_equity": ("EFA", "EEM"),
@@ -366,7 +366,7 @@ PART3_BOOT_REPS: int = 2_000
 PART3_RULE_COSTS_BP: tuple[float, ...] = (0.0, 2.0, 4.0)
 """Round-trip costs (bp) of the Part 3 A rule rows."""
 
-# Part 3 models (P3-B): per-ETF walk-forward, class pooling, grid, robustness
+# Part 3 models: per-ETF walk-forward, class pooling, grid, robustness
 PART3_MODEL: str = "logit"
 """The one model of Part 3 (no re-selection; the Part 2 logit options are picked per test year)."""
 PART3_C_BP: int = 2
@@ -376,12 +376,13 @@ PART3_MAIN_Q: float = 0.20
 PART3_ROBUST: dict[str, str] = {"pre_2020_05": "pre", "post_2020_05": "post", "no_covid": "nocovid"}
 """Robustness versions of each grid cell (Part 2 split names) -> grid column suffix."""
 PART3_FINDING_D: float = 2.0
+"""A grid cell is a finding if d_af (gain over always follow, in paired SEs) exceeds this on all test days
+and the gain is positive in each robustness version."""
 PART3_MIN_PRE: int = 60
-"""Fewest pre-test (2013) forecasts that may seed an ETF's cut-off pool (RSP, AGG and BND have gaps in
-2013; Part 2 keeps its default of half the 250-forecast pool)."""
-"""A grid cell is a finding if d_af > this on all test days and the difference is positive in each robustness version."""
+"""Fewest pre-test (2013) forecasts that may seed an ETF's cut-off pool (only RSP at 12:00 and 14:00 falls
+below Part 2's default of half the 250-forecast pool, with 107 and 112)."""
 
-# Part 3 report (figures and report; P3-C)
+# Part 3 report (figures and report)
 PART3_REPORT_TAU: str = "15:30"
 """Decision time of the per-class rule table and the per-ETF appendix."""
 PART3_REPORT_Q: float = 0.20
@@ -390,10 +391,5 @@ PART3_REPORT_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
 """Shares of days in the per-class rule table."""
 PART3_REPORT_COST_BP: int = 2
 """Round-trip cost (bp) of the main A table, the grid and the rule table."""
-PART3_FINDING_D: float = 2.0
-PART3_MIN_PRE: int = 60
-"""Fewest pre-test (2013) forecasts that may seed an ETF's cut-off pool (RSP, AGG and BND have gaps in
-2013; Part 2 keeps its default of half the 250-forecast pool)."""
-"""A grid cell passes the first test when d_af exceeds this many paired standard errors."""
 PART3_FIGURES: tuple[str, ...] = ("part3_effect", "part3_grid")
 """File stems under `<out>/figures/`."""

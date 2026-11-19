@@ -98,7 +98,6 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     for name in ("part2_report.html", "part2_report_zh.html"):
         assert printed4 in (tmp_path / name).read_text()
     assert all((tmp_path / "figures" / f"{s}.png").exists() for s in config.PART2_FIGURES)
-    # needs part3_data and part3 (merged from P3-A and P3-B); not runnable in the P3-C worktree
     assert re.fullmatch(r"part 3: \d+ ETFs, \d+ runs \(\d+ nested\), \d+ model fits", printed5)
     for name in ("part3_report.html", "part3_report_zh.html"):
         assert printed5 in (tmp_path / name).read_text()

@@ -2,7 +2,9 @@
 per-ETF table on synthetic bars (non-SPY symbol, a dropped session never bridged), the coverage
 table, class pooling and the verdict rule of the A rows on a hand-built two-ETF example."""
 
+import re
 from datetime import date, time
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -133,6 +135,26 @@ def test_dropped_session_is_never_bridged(tmp_path, monkeypatch):
     assert cov["sessions_dropped"].item() == 1 and cov["kept_sessions"].item() == t.height
     assert cov["first_session"].item() == t["session"].min()
     assert cov["share_r1_null"].item() == pytest.approx(2 / t.height)  # first row and `nxt`
+
+
+def test_coverage_counts_a_session_missing_from_every_etf_only_with_the_calendar():
+    days = [date(2018, 1, d) for d in (2, 3, 4, 5, 8)]
+    cal = pl.DataFrame({"session": days})
+    gone = date(2018, 1, 4)  # no ETF has it: the union of the tables cannot see it
+    tables = {
+        s: pl.DataFrame(
+            {"session": [d for d in days if d != gone], "r13": [0.001] * 4, "r1": [0.01] * 4}
+        )
+        for s in "XY"
+    }
+    assert part3_data.coverage(tables)["sessions_dropped"].to_list() == [0, 0]
+    assert part3_data.coverage(tables, cal)["sessions_dropped"].to_list() == [1, 1]
+
+
+def test_part3_constants_are_defined_once():
+    src = (Path(config.__file__)).read_text()
+    for name in ("PART3_FINDING_D", "PART3_MIN_PRE"):
+        assert len(re.findall(rf"^{name}\b", src, flags=re.MULTILINE)) == 1, name
 
 
 def test_coverage_shares():

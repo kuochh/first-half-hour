@@ -88,7 +88,6 @@ def _pool(members: list[dict], names, days: np.ndarray):
         g[pos, j] = m["g"]
         for name in names:
             flags[name][pos, j] = m["flags"][name]
-    assert present.any(1).all(), "a class day without any ETF forecast"
     return g, present, flags
 
 

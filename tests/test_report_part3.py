@@ -71,7 +71,7 @@ def _grid(finding_cells=(("bonds", "15:30"),), pass_cells=()) -> pl.DataFrame:
 def _rules(by_symbol=False) -> pl.DataFrame:
     rows = []
     for who in SYMBOLS if by_symbol else CLASSES:
-        for t in TAUS if by_symbol else (config.PART3_REPORT_TAU,):
+        for t in TAUS:
             for rule, q in [("always_follow", 1.0)] + [
                 (r, q) for q in (0.1, 0.2, 0.5) for r in ("model", "big_move", "vol_only")
             ]:
@@ -109,6 +109,8 @@ def write_inputs(out, finding_cells=(("bonds", "15:30"),), n_pass=1):
         "n_etfs": len(SYMBOLS), "n_cells": 20, "n_pass_full": n_pass,
         "n_findings": len(finding_cells), "findings": [], "n_fits": 777, "synthetic": True,
         "data_window": ["2011-01-03", "2026-08-31"], "count_line": "part 3: 5 ETFs, 99 runs",
+        "class_days_missing": {f"{c} {t}": (4 + i if c == "gold" else 0)
+                               for c in CLASSES for i, t in enumerate(TAUS)},
     }  # fmt: skip
     (out / "part3_summary.json").write_text(json.dumps(summary))
     report_part3.make_figures(out)
@@ -150,6 +152,57 @@ def test_findings_sentence_counts_and_chance_remark(tmp_path):
     assert "20 個格子" in zh and "有 2 個格子" in zh and "共 1 個（債券, 15:30）" in zh
 
 
+def test_findings_sentence_counts_negative_net_and_big_move_from_frames():
+    grid = _grid()  # one finding, bonds 15:30: model net 0.0002 * 1.2 = 2.4 bp > 0, d_bm 1.1
+    s = {"n_pass_full": 1, "n_findings": 1, "n_cells": 20}
+    en = report_part3._findings_text(grid, _rules(), s, "en")
+    assert (
+        "in 0 the model's net per trade after 2 bp is still below zero, and in 0 the model beats"
+        in en
+    )
+    neg = _rules().with_columns(
+        mean_net=pl.when((pl.col("class") == "bonds") & (pl.col("tau") == "15:30")
+                         & (pl.col("rule") == "model") & (pl.col("q") == 0.2))
+        .then(-0.0001).otherwise(pl.col("mean_net"))
+    )  # fmt: skip
+    beat = grid.with_columns(
+        d_bm=pl.when(pl.col("class") == "bonds").then(2.5).otherwise(pl.col("d_bm"))
+    )
+    en = report_part3._findings_text(beat, neg, s, "en")
+    assert (
+        "in 1 the model's net per trade after 2 bp is still below zero, and in 1 the model beats"
+        in en
+    )
+    zh = report_part3._findings_text(beat, neg, s, "zh")
+    assert "有 1 個的模型扣除 2 bp 後每筆淨報酬仍小於 0，有 1 個的模型比大幅移動" in zh
+
+
+def test_coverage_section_shows_class_days_missing_and_session_limit(tmp_path):
+    write_inputs(tmp_path)
+    cov = _coverage().with_columns(
+        sessions_dropped=pl.when(pl.col("symbol") == "TLT").then(300)
+        .when(pl.col("symbol") == "QQQ").then(50).otherwise(0)
+    )  # fmt: skip
+    cov.write_parquet(tmp_path / "part3" / "coverage.parquet")
+    en, zh = pages(tmp_path)
+    assert "gold 4-8" in en and "黃金 4–8" in zh  # gold: 4..8 over the five decision times
+    assert "TLT 300, QQQ 50" in en and "TLT 300, QQQ 50" in zh
+    for page in (en, zh):
+        assert (
+            "last half-hour" not in page
+            and "最後半小時" not in page
+            and "15:30-to-close" not in page
+        )
+
+
+def test_appendix_and_grid_show_net_per_trade():
+    html = report_part3._etf_cells_table(_rules(by_symbol=True), "en")
+    # model 0.0002 * 1.2 = 2.4 bp, SE 0.5 bp -> "2.4 ± 1.0"; always follow 0.0002 * 2 = 4.0 bp -> "4.0 ± 1.0"
+    assert "<td>2.4 ± 1.0</td><td>4.0 ± 1.0</td>" in html
+    g = report_part3._grid_table(_grid(), _rules(), "en")
+    assert g.count("<td>2.4 ± 1.0</td>") == 20
+
+
 def test_summary_disagreeing_with_grid_fails_loud(tmp_path):
     write_inputs(tmp_path)
     s = json.loads((tmp_path / "part3_summary.json").read_text())
@@ -159,10 +212,10 @@ def test_summary_disagreeing_with_grid_fails_loud(tmp_path):
 
 
 def test_grid_table_shows_value_split_d_and_flag():
-    html = report_part3._grid_table(_grid(), "en")
+    html = report_part3._grid_table(_grid(), _rules(), "en")
     assert html.count("<tr>") == 21
     # hand values: 0.0001 * 5 = 5.0 bp, SE 0.4 bp; split d's 1.50 / 1.25 / 2.00; AUC 0.512
-    assert "5.0 (0.4)</td><td>2.50</td><td>1.10</td><td>0.90</td><td>1.50</td><td>1.25</td><td>2.00</td><td>19.0%</td><td>0.512</td><td>yes" in html  # fmt: skip
+    assert "5.0 (0.4)</td><td>2.4 ± 1.0</td><td>2.50</td><td>1.10</td><td>0.90</td><td>1.50</td><td>1.25</td><td>2.00</td><td>19.0%</td><td>0.512</td><td>yes" in html  # fmt: skip
     assert html.count("<td>yes</td>") == 1
 
 

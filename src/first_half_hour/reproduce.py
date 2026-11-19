@@ -548,7 +548,7 @@ def _part2(data: Path, daily: Path, out: Path, synth: bool) -> str:
 
 
 def _run_part3(data: Path, daily: Path, out: Path, synth: bool) -> tuple[int, int]:
-    """Imports `part3_data` (P3-A) and `part3` (P3-B) where used; runs end to end once both are merged."""
+    """Part 3 end to end: per-ETF tables and frames, coverage, A rows, walk-forward, grid, MLflow log."""
     from first_half_hour import part1, part3, part3_data
 
     cal = calendar.sessions(config.DATA_START, config.DATA_END)
@@ -558,9 +558,9 @@ def _run_part3(data: Path, daily: Path, out: Path, synth: bool) -> tuple[int, in
         ctrl = controls.controls(tables[symbol], cal, daily)
         frames[symbol] = part3_data.etf_frame(symbol, tables[symbol], ctrl, data, cal)
     spy_official = part1.part1_table(data, daily, cal)
-    d = out / "part3"  # per-ETF series are private (D7); the tables below are aggregates
+    d = out / "part3"  # per-ETF series are not published; the tables below are aggregates
     d.mkdir(parents=True, exist_ok=True)
-    part3_data.coverage(tables).write_parquet(d / "coverage.parquet")
+    part3_data.coverage(tables, cal).write_parquet(d / "coverage.parquet")
     part3_data.effect_rows(tables, spy_official).write_parquet(d / "effect.parquet")
     results = part3.run_all(frames)
     n_parent, n_child = part3.log_runs(results)

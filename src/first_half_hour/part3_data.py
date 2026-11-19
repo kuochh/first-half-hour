@@ -2,8 +2,7 @@
 table and the "A" rows (is the last half-hour effect there, per class and period).
 
 Every ETF is read on the bar basis: off_close is the close of bar C-1, prev_off the previous
-kept session's (null if the previous calendar session is not kept: never bridged). The spec is
-private/specs/p3-part3.md.
+kept session's (null if the previous calendar session is not kept: never bridged).
 """
 
 from pathlib import Path
