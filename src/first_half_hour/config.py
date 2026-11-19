@@ -346,3 +346,22 @@ PART2_FIGURES: tuple[str, ...] = (
     "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
 )  # fmt: skip
 """File stems under `<out>/figures/`."""
+
+
+# Part 3 data (P3-A)
+PART3_CLASSES: dict[str, tuple[str, ...]] = {
+    "us_equity": ("SPY", "QQQ", "IWM", "VTI", "RSP", "XLE", "XLF"),
+    "intl_equity": ("EFA", "EEM"),
+    "bonds": ("TLT", "AGG", "BND", "HYG"),
+    "gold": ("GLD",),
+}
+"""ETF classes, in report order. IVV and VOO (duplicates of SPY) are not used."""
+PART3_PERIODS: dict[str, tuple[date, date]] = {
+    "p1": (date(2011, 1, 3), date(2013, 12, 31)),
+    "p2": (date(2014, 1, 2), date(2020, 5, 1)),
+    "p3": (date(2020, 5, 4), date(2026, 8, 31)),
+}
+"""Part 3 A periods (Gao's overlap, up to Baltussen's end, after)."""
+PART3_BOOT_REPS: int = 2_000
+PART3_RULE_COSTS_BP: tuple[float, ...] = (0.0, 2.0, 4.0)
+"""Round-trip costs (bp) of the Part 3 A rule rows."""
