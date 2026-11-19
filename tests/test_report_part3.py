@@ -78,6 +78,7 @@ def _rules(by_symbol=False) -> pl.DataFrame:
                 rows.append({
                     "symbol" if by_symbol else "class": who, "tau": t, "rule": rule, "q": q,
                     "c_eval_bp": 2, "split": "all", "n_trades": int(3000 * q),
+                    "n_etf_trades": int(3000 * q),
                     "coverage": q, "mean_net": 0.0002 * (1 + q), "se": 0.00005, "hit": 0.52,
                     "hit_se": 0.01, "sharpe": 0.4, "sharpe_se": 0.2, "diff_vs_af": 0.0001,
                     "diff_vs_af_se": 0.00004, "auc": 0.512,
@@ -88,7 +89,8 @@ def _rules(by_symbol=False) -> pl.DataFrame:
 def _coverage() -> pl.DataFrame:
     return pl.DataFrame([
         {"symbol": s, "first_session": date(2011, 1, 3), "last_session": date(2026, 8, 31),
-         "kept": 3900, "dropped": 0, "r13_zero_share": 0.012, "r1_null_share": 0.0}
+         "kept_sessions": 3900, "sessions_dropped": 0, "share_r13_zero": 0.012,
+         "share_r1_null": 0.0}
         for s in SYMBOLS
     ]).with_columns(
         first_session=pl.when(pl.col("symbol") == "HYG").then(date(2012, 6, 1)).otherwise(pl.col("first_session")),
@@ -165,7 +167,9 @@ def test_grid_table_shows_value_split_d_and_flag():
 
 
 def test_coverage_table_flags_late_start_and_gaps():
-    cov = _coverage().with_columns(dropped=pl.when(pl.col("symbol") == "TLT").then(4).otherwise(0))
+    cov = _coverage().with_columns(
+        sessions_dropped=pl.when(pl.col("symbol") == "TLT").then(4).otherwise(0)
+    )
     cov = cov.with_columns(first_session=pl.when(pl.col("symbol") == "GLD").then(date(2012, 6, 1)).otherwise(pl.col("first_session")))  # fmt: skip
     html = report_part3._coverage_table(cov, "en")
     assert html.count("late start") == 1 and html.count("sessions dropped (missing a key bar)") == 1

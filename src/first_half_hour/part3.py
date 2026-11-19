@@ -82,6 +82,12 @@ def _pool(members: list[dict], names, days: np.ndarray):
     return g, present, flags
 
 
+def _sd(a: np.ndarray) -> float | None:
+    """part2's bootstrap sd, or None when over 1% of the draws have no trade (a thin rule in a short
+    split: the SE, and so its d, is not reported rather than failing the whole run)."""
+    return part2._sd(a) if np.isnan(a).mean() < 0.01 else None
+
+
 def _class_rows(members, cls, tau, boot, c_evals, splits) -> pl.DataFrame:
     """Rule rows of one (class, tau): every rule x q x c_eval x split."""
     days = np.unique(np.concatenate([m["session"] for m in members]))
@@ -112,20 +118,22 @@ def _class_rows(members, cls, tau, boot, c_evals, splits) -> pl.DataFrame:
                     {"class": cls, "tau": tau}, rule=rule, q=q, c_eval_bp=round(ce * 1e4),
                     split=split, n_days=int(m.sum()), n_etf_trades=int(ntr[i][m].sum()),
                     coverage=float(ssum[i] / m.sum()), mean_net=point[i, 0],
-                    se=part2._sd(draws[:, i, 0]), hit=point[i, 1], sharpe=point[i, 2],
-                    sharpe_se=part2._sd(draws[:, i, 2]),
+                    se=_sd(draws[:, i, 0]), hit=point[i, 1], hit_se=_sd(draws[:, i, 1]), sharpe=point[i, 2],
+                    sharpe_se=_sd(draws[:, i, 2]),
                 )  # fmt: skip
                 for nm, ref in (("af", ("always_follow", 1.0)), ("bm", ("big_move", q)),
                                 ("vol", ("vol_only", q))):  # fmt: skip
                     if ref in idx and ref != (rule, q) and rule != "always_follow":
                         r = idx[ref]
                         row[f"diff_vs_{nm}"] = point[i, 0] - point[r, 0]
-                        row[f"diff_vs_{nm}_se"] = part2._sd(draws[:, i, 0] - draws[:, r, 0])
+                        row[f"diff_vs_{nm}_se"] = _sd(draws[:, i, 0] - draws[:, r, 0])
                     else:
                         row[f"diff_vs_{nm}"] = row[f"diff_vs_{nm}_se"] = None
                 rows.append(row)
     diff_cols = [f"diff_vs_{a}{b}" for a in ("af", "bm", "vol") for b in ("", "_se")]
-    return pl.DataFrame(rows, schema_overrides={c: pl.Float64 for c in diff_cols})
+    return pl.DataFrame(
+        rows, schema_overrides={c: pl.Float64 for c in [*diff_cols, "se", "hit_se", "sharpe_se"]}
+    )
 
 
 # ---------------------------------------------------------------- grid and findings

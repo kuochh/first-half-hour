@@ -397,11 +397,11 @@ def _coverage_table(cov: pl.DataFrame, lang: str) -> str:
     rows = []
     for r in cov.iter_rows(named=True):
         note = [k for k, on in (("late start", r["first_session"] > start + timedelta(days=LATE_START_DAYS)),
-                                ("gaps", r["dropped"] > 0)) if on]  # fmt: skip
+                                ("gaps", r["sessions_dropped"] > 0)) if on]  # fmt: skip
         rows.append([
             r["symbol"], _cls(_class_of(r["symbol"]), lang), str(r["first_session"]),
-            str(r["last_session"]), str(r["kept"]), str(r["dropped"]), _pct(r["r13_zero_share"]),
-            _pct(r["r1_null_share"]), "; ".join(_lab(NOTE, k, lang, "coverage note") for k in note),
+            str(r["last_session"]), str(r["kept_sessions"]), str(r["sessions_dropped"]), _pct(r["share_r13_zero"]),
+            _pct(r["share_r1_null"]), "; ".join(_lab(NOTE, k, lang, "coverage note") for k in note),
         ])  # fmt: skip
     head = [
         c[k] for k in ("etf", "class", "first", "last", "kept", "dropped", "zero", "null", "note")
@@ -523,7 +523,7 @@ def _class_rules_table(rules: pl.DataFrame, lang: str) -> str:
         for rule, q, r in lines:
             diff = "" if rule == "always_follow" else _pm(r["diff_vs_af"], r["diff_vs_af_se"])
             rows.append([
-                _cls(cl, lang), _rule_label(rule, q, lang), str(r["n_trades"]), _pct(r["coverage"]),
+                _cls(cl, lang), _rule_label(rule, q, lang), str(r["n_etf_trades"]), _pct(r["coverage"]),
                 _pm(r["mean_net"], r["se"]), _pm(r["sharpe"], r["sharpe_se"], "plain"),
                 _pm(r["hit"], r["hit_se"], "pct"), diff,
             ])  # fmt: skip
@@ -556,9 +556,10 @@ def _etf_effect_table(effect: pl.DataFrame, lang: str) -> str:
 def _etf_cells_table(etf_rules: pl.DataFrame, lang: str) -> str:
     c = TEXT[lang]["cols"]
     base = etf_rules.filter(
-        (pl.col("c_eval_bp") == C_MAIN) & (pl.col("split") == "all") & (pl.col("rule") == "model")
+        (pl.col("c_eval_bp") == C_MAIN)
+        & (pl.col("rule") == "model")
         & ((pl.col("q") - Q).abs() < 1e-9)
-    )  # fmt: skip
+    )  # etf_rules covers all test days only (no splits)
     rows = []
     for sym in [s for syms in config.PART3_CLASSES.values() for s in syms]:
         for t, _ in config.PART2_TIMES:
