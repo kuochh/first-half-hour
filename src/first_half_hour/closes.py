@@ -28,7 +28,7 @@ def official_close(table: pl.DataFrame, csv_path: Path, dividends_path: Path) ->
 
     off_close is the adjusted official close of the session; prev_off the previous XNYS session's
     (read from the CSV, so a session dropped from `table` does not matter); c_p the period constant.
-    Fails loud (AssertionError) on any check listed in private/specs/p1-part1.md.
+    Fails loud (AssertionError) on any of the checks below.
     """
     if config.OFFICIAL_CLOSE_VERIFY:  # the real file only; reproduce --synthetic writes a stub
         body = csv_path.read_bytes()

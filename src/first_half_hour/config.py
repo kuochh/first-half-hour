@@ -134,7 +134,7 @@ CH2_MAX_ITER: int = 5000
 CH2_SPA_REPS: int = 1_000
 CH2_SPA_SEED: int = 20261113
 CH2_PRIMARY_ALPHA: float = 0.05
-"""One-sided Diebold-Mariano level of the primary criterion (D19)."""
+"""One-sided Diebold-Mariano level of the primary criterion."""
 CH2_REGISTERED_MODEL: str = "fhh-chapter2-hit"
 
 # Chapter 2 (target, features, baselines)
@@ -280,7 +280,7 @@ PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
 
 
-# Part 2 features (P2-A)
+# Part 2 features
 PART2_TIMES: tuple[tuple[str, int], ...] = (
     ("10:00", 600), ("12:00", 720), ("14:00", 840), ("15:00", 900), ("15:30", 930),
 )  # fmt: skip
@@ -305,7 +305,7 @@ PART2_RANK_WINDOW: int = 60
 PART2_ROLL_WINDOW: int = 20
 """Previous sessions in vol_rel and hit20."""
 
-# Part 2 models (P2-B): walk-forward, rules, baselines, bootstrap
+# Part 2 models: walk-forward, rules, baselines, bootstrap
 PART2_LOGIT_C: tuple[float, ...] = (0.01, 0.1, 1.0)
 """Inverse regularisation options of the Part 2 logit (picked per test year by last-year log loss)."""
 PART2_HGB_GRID: tuple[tuple[int, int], ...] = ((2, 100), (2, 300), (3, 100), (3, 300))
@@ -335,7 +335,7 @@ PART2_HEADLINE_TAU: str = "15:30"
 PART2_SPLIT_MIN_DAYS: int = 30
 """A split with fewer test days is not reported (only matters on synthetic data)."""
 
-# Part 2 report (figures and report; P2-C)
+# Part 2 report (figures and report)
 PART2_REPORT_HEADLINE: tuple[str, int] = ("15:30", 2)
 """Headline cell of the Part 2 report: decision time and the y threshold / evaluation cost in bp."""
 PART2_REPORT_Q: float = 0.20
@@ -345,4 +345,51 @@ PART2_REPORT_TOP_FEATURES: int = 5
 PART2_FIGURES: tuple[str, ...] = (
     "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
 )  # fmt: skip
+"""File stems under `<out>/figures/`."""
+
+
+# Part 3 data
+PART3_CLASSES: dict[str, tuple[str, ...]] = {
+    "us_equity": ("SPY", "QQQ", "IWM", "VTI", "RSP", "XLE", "XLF"),
+    "intl_equity": ("EFA", "EEM"),
+    "bonds": ("TLT", "AGG", "BND", "HYG"),
+    "gold": ("GLD",),
+}
+"""ETF classes, in report order. IVV and VOO (duplicates of SPY) are not used."""
+PART3_PERIODS: dict[str, tuple[date, date]] = {
+    "p1": (date(2011, 1, 3), date(2013, 12, 31)),
+    "p2": (date(2014, 1, 2), date(2020, 5, 1)),
+    "p3": (date(2020, 5, 4), date(2026, 8, 31)),
+}
+"""Part 3 A periods (Gao's overlap, up to Baltussen's end, after)."""
+PART3_BOOT_REPS: int = 2_000
+PART3_RULE_COSTS_BP: tuple[float, ...] = (0.0, 2.0, 4.0)
+"""Round-trip costs (bp) of the Part 3 A rule rows."""
+
+# Part 3 models: per-ETF walk-forward, class pooling, grid, robustness
+PART3_MODEL: str = "logit"
+"""The one model of Part 3 (no re-selection; the Part 2 logit options are picked per test year)."""
+PART3_C_BP: int = 2
+"""Threshold c of the target y and evaluation cost of the main numbers, round trip, bp."""
+PART3_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+PART3_MAIN_Q: float = 0.20
+PART3_ROBUST: dict[str, str] = {"pre_2020_05": "pre", "post_2020_05": "post", "no_covid": "nocovid"}
+"""Robustness versions of each grid cell (Part 2 split names) -> grid column suffix."""
+PART3_FINDING_D: float = 2.0
+"""A grid cell is a finding if d_af (gain over always follow, in paired SEs) exceeds this on all test days
+and the gain is positive in each robustness version."""
+PART3_MIN_PRE: int = 60
+"""Fewest pre-test (2013) forecasts that may seed an ETF's cut-off pool (only RSP at 12:00 and 14:00 falls
+below Part 2's default of half the 250-forecast pool, with 107 and 112)."""
+
+# Part 3 report (figures and report)
+PART3_REPORT_TAU: str = "15:30"
+"""Decision time of the per-class rule table and the per-ETF appendix."""
+PART3_REPORT_Q: float = 0.20
+"""Share of days the grid cells trade (top-20% minus always-follow)."""
+PART3_REPORT_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+"""Shares of days in the per-class rule table."""
+PART3_REPORT_COST_BP: int = 2
+"""Round-trip cost (bp) of the main A table, the grid and the rule table."""
+PART3_FIGURES: tuple[str, ...] = ("part3_effect", "part3_grid")
 """File stems under `<out>/figures/`."""

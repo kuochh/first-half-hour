@@ -32,7 +32,7 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     before = (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID)
     cli.main(["reproduce", "--synthetic", "--out", str(tmp_path)])
     lines = capsys.readouterr().out.strip().splitlines()
-    printed, printed2, printed3, printed4 = lines[-4:]
+    printed, printed2, printed3, printed4, printed5 = lines[-5:]
     assert (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID) == before, (
         "config not restored"
     )
@@ -98,6 +98,10 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     for name in ("part2_report.html", "part2_report_zh.html"):
         assert printed4 in (tmp_path / name).read_text()
     assert all((tmp_path / "figures" / f"{s}.png").exists() for s in config.PART2_FIGURES)
+    assert re.fullmatch(r"part 3: \d+ ETFs, \d+ runs \(\d+ nested\), \d+ model fits", printed5)
+    for name in ("part3_report.html", "part3_report_zh.html"):
+        assert printed5 in (tmp_path / name).read_text()
+    assert all((tmp_path / "figures" / f"{s}.png").exists() for s in config.PART3_FIGURES)
 
 
 def _check_chapter2(out, printed):

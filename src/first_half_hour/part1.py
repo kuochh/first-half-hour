@@ -2,7 +2,7 @@
 
 `part1_table` builds the daily table on the official-close basis; `part1_rows` turns it into one row
 per (item, window, variant, term) with our estimate, its standard error, the paper's value (with
-source and market), the no-skill value and a verdict. The spec is private/specs/p1-part1.md.
+source and market), the no-skill value and a verdict.
 
 Past-only cut-offs (terciles, jump percentiles) at session i read sessions before i only.
 """
@@ -47,9 +47,9 @@ _SCHEMA: dict[str, pl.DataType] = {
 
 
 # ------------------------------------------------------------------ the daily table
-def _extra_bars(data_root: Path, cal: pl.DataFrame) -> pl.DataFrame:
+def _extra_bars(data_root: Path, cal: pl.DataFrame, symbol: str = SYMBOL) -> pl.DataFrame:
     """Per kept-or-not session: p_c16, p_c6 and the half-hour boundary prices p_hh_0 .. p_hh_11."""
-    rth = bars.rth_bars(data_root, SYMBOL, cal)
+    rth = bars.rth_bars(data_root, symbol, cal)
     mod = pl.col("minute").dt.hour().cast(pl.Int32) * 60 + pl.col("minute").dt.minute().cast(
         pl.Int32
     )

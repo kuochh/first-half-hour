@@ -25,7 +25,7 @@ def _close_at(mod: pl.Expr, target: pl.Expr, col: str = "close") -> pl.Expr:
 
 
 def daily_table(root: Path, symbol: str, cal: pl.DataFrame) -> pl.DataFrame:
-    """One row per kept session, sorted. Columns are documented in private/specs/m1-chapter1.md.
+    """One row per kept session, sorted.
 
     A session lacking any key bar (09:59, C-61, C-31, C-1) is dropped and logged. prev_close is
     the previous XNYS session's close, and only if that session is kept; otherwise r1, r_on and

@@ -14,14 +14,14 @@ def main(argv: list[str] | None = None) -> None:
     fp.add_argument("--hashes", type=Path, help="also write a sha256 per file to this path")
     rp = sub.add_parser(
         "reproduce",
-        help="chapters 1 and 2 and parts 1 and 2, logged to MLflow",
+        help="chapters 1 and 2 and parts 1, 2 and 3, logged to MLflow",
         description="Run chapter 1 (items 1-9) and chapter 2 (walk-forward ML vs the volatility "
-        "formula) and part 1 (replicating Gao and Baltussen on SPY) and part 2 (a per-day classifier) end to end. Thread use follows the environment, nothing is capped here: "
+        "formula) and part 1 (replicating Gao and Baltussen on SPY) and part 2 (a per-day classifier) and part 3 (other ETFs) end to end. Thread use follows the environment, nothing is capped here: "
         "set e.g. OMP_NUM_THREADS=4 (boosted trees, BLAS) to leave cores free.",
     )
     rp.add_argument(
         "--chapter",
-        choices=("1", "2", "part1", "part2", "all"),
+        choices=("1", "2", "part1", "part2", "part3", "all"),
         default="all",
         help="which part (default all)",
     )

@@ -24,7 +24,7 @@ from first_half_hour.report import CSS, _sig
 GAO = "Gao WP Oct 2014"
 BALT = "Baltussen SSRN Aug 2020"
 
-RET = {  # the four returns, named once (D50); every reader-facing text looks them up here
+RET = {  # the four returns, named once; every reader-facing text looks them up here
     "r1": ("previous close to 10:00", "前一天收盤到 10:00"),
     "r12": ("15:00 to 15:30", "15:00 到 15:30"),
     "r13": ("15:30 to close", "15:30 到收盤"),
@@ -442,7 +442,7 @@ SIZE_NOTE = {
     "larger": ("same direction, much larger, wide error", "方向相同、大很多、誤差很寬"),
     "smaller": ("same direction, much smaller, wide error", "方向相同、小很多、誤差很寬"),
 }
-"""Size note on a "replicated" row whose number is far from the paper's (PM working default, D52)."""
+"""Size note on a "replicated" row whose number is far from the paper's."""
 
 
 def _size_note(r: dict) -> str | None:

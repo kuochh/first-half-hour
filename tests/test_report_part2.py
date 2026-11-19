@@ -112,7 +112,7 @@ def test_report_renders_both_languages_with_d50_labels_only(tmp_path):
     assert "previous close to 12:00" in en and "前一天收盤到 14:00" in zh
     assert "15:30 to close" in en and "15:30 到收盤" in zh
     assert "partly amplified" in en and "部分放大" in zh
-    for page in (en, zh):  # D50: r13 is never "last half-hour"; the volatility is 09:30 to 10:00
+    for page in (en, zh):  # r13 is never "last half-hour"; the volatility is 09:30 to 10:00
         assert not re.search(r"last half-hour|first half-hour|最後半小時|開盤後半小時", page)
         assert not re.search(r"same share|same number|同樣交易比例|交易比例和模型規則相同", page)
     assert "0 bp (= sign agreement)" in en and "0 bp（＝方向相同）" in zh

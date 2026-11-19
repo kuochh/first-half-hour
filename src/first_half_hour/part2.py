@@ -247,18 +247,25 @@ def _split_masks(sessions: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def _flags(
-    fc: pl.DataFrame, fcv: pl.DataFrame | None, tf: pl.DataFrame, qs, window=config.PART2_CUT_POOL
+    fc: pl.DataFrame,
+    fcv: pl.DataFrame | None,
+    tf: pl.DataFrame,
+    qs,
+    window=config.PART2_CUT_POOL,
+    min_pre: int | None = None,
 ):
     """Test sessions, g, and the past-only trade flags {(rule, q): bool array} of one cell.
 
-    `window`: size of the rolling cut-off pool (None = expanding)."""
+    `window`: size of the rolling cut-off pool (None = expanding). `min_pre`: the fewest pre
+    forecasts that may seed it (default window // 2; Part 3 lowers it for ETFs with gaps)."""
     te = fc.filter(pl.col("kind") == "test").sort("session")
     first = int(te["year"].min())
     pre = fc.filter((pl.col("kind") == "pre") & (pl.col("year") < first))
     assert pre.height > 0, "no pre forecasts to seed the cut-off"
     assert pre["session"].max() < te["session"].min(), "cut-off pool must precede the test days"
     pre = pre.sort("session")
-    assert window is None or pre.height >= window // 2, "too few pre forecasts for the cut-off pool"
+    need = (window // 2 if min_pre is None else min_pre) if window is not None else 1
+    assert pre.height >= need, f"too few pre forecasts for the cut-off pool: {pre.height} < {need}"
     cut = past_cuts(pre["p"].to_numpy(), te["p"].to_numpy(), qs, window)
     flags = {("always_follow", 1.0): np.ones(te.height, bool)}
     for j, q in enumerate(qs):
@@ -285,8 +292,8 @@ def _flags(
 
 
 def _rule_rows(fc, fcv, tf, key, boot, qs, c_evals, splits,
-               window=config.PART2_CUT_POOL) -> pl.DataFrame:  # fmt: skip
-    te, flags = _flags(fc, fcv, tf, qs, window)
+               window=config.PART2_CUT_POOL, min_pre=None) -> pl.DataFrame:  # fmt: skip
+    te, flags = _flags(fc, fcv, tf, qs, window, min_pre)
     sess, g = te["session"].to_numpy(), te["g"].to_numpy()
     masks = _split_masks(sess)
     names = list(flags)

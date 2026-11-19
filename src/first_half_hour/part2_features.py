@@ -4,7 +4,7 @@ Every feature uses only minute bars that start strictly before tau of the sessio
 sessions, daily series shifted to the previous session (VIX) and calendar facts. Half-days are out
 at every decision time; a session with no bar closing at tau is out at that time only. Rolling
 features (s_rank60, vol_rel, hit20) read the previous rows of the same tau only. Direction-aligned
-features are multiplied by d = +1 if s >= 0 else -1. The spec is private/specs/p2-part2.md.
+features are multiplied by d = +1 if s >= 0 else -1.
 """
 
 from pathlib import Path
@@ -138,7 +138,7 @@ def build(
     )
     flags = ctrl.select("session", "vix_lag", *_CALENDAR_FLAGS)
     base = (
-        table.filter(~pl.col("is_half_day"))
+        table.filter(~pl.col("is_half_day") & pl.col("prev_off").is_not_null())
         .select("session", "p_open", "prev_off", "off_close", "r13", "rv_fh")
         .join(flags, on="session", how="left", validate="1:1")
         .with_columns(year=pl.col("session").dt.year())
@@ -152,9 +152,15 @@ def build(
 
 
 def frame(
-    table: pl.DataFrame, ctrl: pl.DataFrame, data_root: Path, cal: pl.DataFrame
+    table: pl.DataFrame,
+    ctrl: pl.DataFrame,
+    data_root: Path,
+    cal: pl.DataFrame,
+    symbol: str = SYMBOL,
 ) -> pl.DataFrame:
     """Part 2's long frame (columns in the module docstring and the spec). `table` is
-    part1.part1_table, `ctrl` is controls.controls(table, cal, daily_dir)."""
-    rth = bars.rth_bars(data_root, SYMBOL, cal).collect()
+    part1.part1_table (or part3_data.etf_table), `ctrl` is controls.controls(table, cal, daily_dir).
+    A session whose previous calendar session is not in the table (null prev_off) has no signal
+    and is left out (never happens for SPY's official-close table)."""
+    rth = bars.rth_bars(data_root, symbol, cal).collect()
     return build(table, ctrl, cal, rth)

@@ -5,7 +5,7 @@ cumulative) and `<out>/part2_summary.json` (all written by `part2.write_outputs`
 completed by `reproduce._part2`); writes four figures under `<out>/figures/` and
 `<out>/part2_report.html` and `<out>/part2_report_zh.html`. Nothing is recomputed: both pages lay
 out the same numbers, and a code label with no entry here (a feature, a rule, a split) fails an
-assertion instead of showing raw. Return names are the D50 ones, looked up in `report_part1.RET`.
+assertion instead of showing raw. Return names are looked up in `report_part1.RET`.
 
 The cumulative figure needs the per-day wealth series (`cumulative.parquet`: session, rule, wealth;
 rules model / always_follow / big_move). It is private (D7) and used only by the figure.
