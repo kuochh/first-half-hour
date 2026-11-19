@@ -43,9 +43,19 @@ def _etf_job(sym, frame, taus, feats, vol_feats, first, reps, opts):
             fa, va = part2._walk(sub, t, c, config.PART3_MODEL, feats, "all", first, opts)
             fv, vv = part2._walk(sub, t, c, config.PART3_MODEL, vol_feats, "vol_only", first, opts)
             key = (t, c, config.PART3_MODEL, "all")
-            te, fl = part2._flags(fa, fv, sub, qs)
+            te, fl = part2._flags(fa, fv, sub, qs, min_pre=config.PART3_MIN_PRE)
             flags[t] = {"session": te["session"].to_numpy(), "g": te["g"].to_numpy(), "flags": fl}
-            r = part2._rule_rows(fa, fv, sub, key, boot, qs, config.PART2_EVAL_COSTS, ("all",))
+            r = part2._rule_rows(
+                fa,
+                fv,
+                sub,
+                key,
+                boot,
+                qs,
+                config.PART2_EVAL_COSTS,
+                ("all",),
+                min_pre=config.PART3_MIN_PRE,
+            )
             auc = {}
             for nm, f in (("all", fa), ("vol_only", fv)):
                 x = f.filter(pl.col("kind") == "test")
@@ -216,16 +226,16 @@ def run_all(frames: dict, *, groups=None, features=None, times=None, first_test_
 
     boot = part2._Boot(reps)
     crules = []
+    class_days_missing: dict[str, int] = {}
     for cls, syms in classes.items():
         for t in taus:
             members = [res[s][2][t] for s in syms]
             days = np.unique(np.concatenate([m["session"] for m in members]))
-            # every class day must have a forecast from some ETF of the class, as for any other ETF
+            # days other ETFs have but no ETF of this class has (dropped sessions): counted, not
+            # filled; the class series simply has no row that day
             others = np.unique(np.concatenate([res[s][2][t]["session"] for s in symbols]))
             span = others[(others >= days.min()) & (others <= days.max())]
-            assert np.isin(span, days).all(), (
-                f"{cls} {t}: days where no ETF of the class has a forecast"
-            )
+            class_days_missing[f"{cls} {t}"] = int((~np.isin(span, days)).sum())
             crules.append(
                 _class_rows(members, cls, t, boot, config.PART2_EVAL_COSTS, part2.SPLIT_NAMES)
             )
@@ -239,7 +249,7 @@ def run_all(frames: dict, *, groups=None, features=None, times=None, first_test_
     summary = {
         "n_etfs": len(symbols), "n_cells": int(grid.height),
         "n_pass_full": int((grid["d_af"] > config.PART3_FINDING_D).sum()),
-        "n_findings": int(found.height),
+        "n_findings": int(found.height), "class_days_missing": class_days_missing,
         "findings": found.select("class", "tau", "top20_minus_af", "d_af", "diff_pre", "diff_post",
                                  "diff_nocovid", "d_af_pre", "d_af_post", "d_af_nocovid").to_dicts(),
         "n_fits": int(val.height + cell_years), "n_runs": int(n_cells + cell_years),

@@ -144,10 +144,15 @@ def test_run_all_grid_counts_logging_and_worker_independence(tmp_path):
     assert (tmp_path / "outputs" / "part3_summary.json").exists()
 
 
-def test_class_day_without_any_forecast_fails_loud(monkeypatch):
+def test_class_day_without_any_forecast_is_counted(monkeypatch):
     f = frames()
     # CCC (a class of its own) loses a test-year day that the other ETFs have
     day = f["AAA"].filter((pl.col("tau") == "15:30") & (pl.col("year") == 2019))["session"][10]
     f["CCC"] = f["CCC"].filter(~((pl.col("tau") == "15:30") & (pl.col("session") == day)))
-    with pytest.raises(AssertionError, match="no ETF of the class"):
-        part3.run_all(f, n_jobs=1, reps=20, first_test_year=2018)
+    s = part3.run_all(f, n_jobs=1, reps=20, first_test_year=2018)["summary"]
+    missing = {k: v for k, v in s["class_days_missing"].items() if v}
+    assert (
+        len(missing) == 1
+        and next(iter(missing.values())) == 1
+        and next(iter(missing)).endswith("15:30")
+    )
