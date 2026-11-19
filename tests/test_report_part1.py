@@ -190,3 +190,13 @@ def test_table_shows_no_skill_note_and_loo_min():
     assert "cut-offs from earlier sessions only" in report_part1.VARIANT["past_only"][0]
     with pytest.raises(AssertionError, match="no en label for note"):
         report_part1._comparison(rows.with_columns(note=pl.lit("a new note")), "en")
+
+
+def test_size_note_on_far_replicated_rows():
+    from first_half_hour import report_part1
+
+    base = {"verdict": "replicated", "paper_value": -0.145}
+    assert report_part1._size_note(base | {"ours": -0.663}) == "larger"
+    assert report_part1._size_note(base | {"ours": -0.05}) == "smaller"
+    assert report_part1._size_note(base | {"ours": -0.2}) is None
+    assert report_part1._size_note(base | {"ours": -0.663, "verdict": "cannot tell"}) is None

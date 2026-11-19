@@ -200,6 +200,8 @@ PART1_SMALL_N: int = 250
 PART1_VERDICT_Z: float = 2.0
 PART1_MDE_Z: float = 2.0 + 0.84
 """Verdict threshold (2 SE) and minimum detectable effect multiplier (2 + 0.84: 80% power)."""
+PART1_SIZE_RATIO: float = 2.0
+"""A replicated row more than this many times (or under 1/this of) the paper's number gets a size note."""
 PART1_COST_BP: float = 1.0
 """Cost per side of the `cost_1bp` variants."""
 PART1_JUMP_PCT: tuple[float, float] = (0.10, 0.90)

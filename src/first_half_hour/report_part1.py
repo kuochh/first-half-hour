@@ -438,11 +438,34 @@ def _null_cell(r: dict, metric: str, lang: str) -> str:
     return f"{_num(metric, r['null_value'])} ({label})"
 
 
+SIZE_NOTE = {
+    "larger": ("same direction, much larger, wide error", "方向相同、大很多、誤差很寬"),
+    "smaller": ("same direction, much smaller, wide error", "方向相同、小很多、誤差很寬"),
+}
+"""Size note on a "replicated" row whose number is far from the paper's (PM working default, D52)."""
+
+
+def _size_note(r: dict) -> str | None:
+    """ "larger"/"smaller" when a replicated row is more than PART1_SIZE_RATIO times (or under
+    1/PART1_SIZE_RATIO of) the paper's number with the same sign; None otherwise."""
+    if r["verdict"] != "replicated" or not r["paper_value"]:
+        return None
+    ratio = r["ours"] / r["paper_value"]
+    if ratio > config.PART1_SIZE_RATIO:
+        return "larger"
+    if 0 < ratio < 1 / config.PART1_SIZE_RATIO:
+        return "smaller"
+    return None
+
+
 def _cell_group(r: dict | None, metric: str, lang: str) -> str:
     """The cells of one window (SUB); blank when it has no row."""
     if r is None:
         return "<td></td>" * len(SUB)
     verdict = "" if r["verdict"] is None else _lab(VERDICT, r["verdict"], lang, "verdict")
+    size = _size_note(r)
+    if size is not None:
+        verdict = f"{verdict} ({_lab(SIZE_NOTE, size, lang, 'size note')})"
     loo = "" if r["loo_min"] is None else _num(metric, r["loo_min"])
     cells = [
         str(r["n"]), _null_cell(r, metric, lang), _num(metric, r["ours"]),
