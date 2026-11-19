@@ -109,7 +109,7 @@ def test_report_renders_in_both_languages_with_same_numbers(tmp_path):
         for gone in ("first half-hour", "first-half-hour", "overnight", "last half-hour"):
             assert gone not in page.lower(), gone
     bare = re.compile(r"(?<![A-Za-z0-9_])(r1|r12|r13|rod)(?![A-Za-z0-9_])")
-    for page in (en, zh):  # D50: the four returns are named in words, never by code
+    for page in (en, zh):  # the four returns are named in words, never by code
         text = re.sub(r"<style>.*?</style>|<img[^>]*>", "", page, flags=re.DOTALL)
         assert not bare.search(text), bare.search(text)
         assert "previous close to 10:00" in page or "前一天收盤到 10:00" in page

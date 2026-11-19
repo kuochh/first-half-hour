@@ -133,7 +133,7 @@ def dm_test(d: np.ndarray) -> dict:
 
 
 def primary_criterion(fc: pl.DataFrame, chosen: str, target: str = PRIMARY_TARGET) -> dict:
-    """D19 on the judging window: BSS vs calibrated > 0 AND one-sided DM p < 0.05."""
+    """The primary criterion on the judging window: BSS vs calibrated > 0 AND one-sided DM p < 0.05."""
     win = _window(fc, target, *config.CH2_JUDGE).filter(
         pl.col("model").is_in([f"tier:{chosen}", "formula_cal"])
     )

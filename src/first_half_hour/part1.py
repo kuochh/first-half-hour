@@ -2,7 +2,7 @@
 
 `part1_table` builds the daily table on the official-close basis; `part1_rows` turns it into one row
 per (item, window, variant, term) with our estimate, its standard error, the paper's value (with
-source and market), the no-skill value and a verdict. The spec is private/specs/p1-part1.md.
+source and market), the no-skill value and a verdict.
 
 Past-only cut-offs (terciles, jump percentiles) at session i read sessions before i only.
 """

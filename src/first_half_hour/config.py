@@ -134,7 +134,7 @@ CH2_MAX_ITER: int = 5000
 CH2_SPA_REPS: int = 1_000
 CH2_SPA_SEED: int = 20261113
 CH2_PRIMARY_ALPHA: float = 0.05
-"""One-sided Diebold-Mariano level of the primary criterion (D19)."""
+"""One-sided Diebold-Mariano level of the primary criterion."""
 CH2_REGISTERED_MODEL: str = "fhh-chapter2-hit"
 
 # Chapter 2 (target, features, baselines)
@@ -280,7 +280,7 @@ PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
 
 
-# Part 2 features (P2-A)
+# Part 2 features
 PART2_TIMES: tuple[tuple[str, int], ...] = (
     ("10:00", 600), ("12:00", 720), ("14:00", 840), ("15:00", 900), ("15:30", 930),
 )  # fmt: skip
@@ -305,7 +305,7 @@ PART2_RANK_WINDOW: int = 60
 PART2_ROLL_WINDOW: int = 20
 """Previous sessions in vol_rel and hit20."""
 
-# Part 2 models (P2-B): walk-forward, rules, baselines, bootstrap
+# Part 2 models: walk-forward, rules, baselines, bootstrap
 PART2_LOGIT_C: tuple[float, ...] = (0.01, 0.1, 1.0)
 """Inverse regularisation options of the Part 2 logit (picked per test year by last-year log loss)."""
 PART2_HGB_GRID: tuple[tuple[int, int], ...] = ((2, 100), (2, 300), (3, 100), (3, 300))
@@ -335,7 +335,7 @@ PART2_HEADLINE_TAU: str = "15:30"
 PART2_SPLIT_MIN_DAYS: int = 30
 """A split with fewer test days is not reported (only matters on synthetic data)."""
 
-# Part 2 report (figures and report; P2-C)
+# Part 2 report (figures and report)
 PART2_REPORT_HEADLINE: tuple[str, int] = ("15:30", 2)
 """Headline cell of the Part 2 report: decision time and the y threshold / evaluation cost in bp."""
 PART2_REPORT_Q: float = 0.20

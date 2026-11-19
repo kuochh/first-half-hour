@@ -142,7 +142,7 @@ def _dense_events(first_day: date) -> tuple[list[date], list[date]]:
 def _write_stub_daily(
     daily: Path, first_day: date = date(2017, 12, 1), dense_events: bool = False
 ) -> None:
-    """Stub daily files in the formats the real loaders read (see private/DATA.md).
+    """Stub daily files in the formats the real loaders read.
 
     `dense_events` (Part 1) replaces the three FOMC and two CPI dates with regular schedules."""
     daily.mkdir(parents=True, exist_ok=True)
@@ -484,7 +484,7 @@ def _run_part2(data: Path, daily: Path, out: Path, synth: bool) -> tuple[int, in
         part1,
         part2,
         part2_features,
-    )  # P2-A / P2-B, imported where they are used
+    )  # imported where they are used
 
     cal = calendar.sessions(config.DATA_START, config.DATA_END)
     table = part1.part1_table(data, daily, cal)
