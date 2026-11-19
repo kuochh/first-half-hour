@@ -278,3 +278,71 @@ PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.0618}
 """Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
 PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
+
+
+# Part 2 features (P2-A)
+PART2_TIMES: tuple[tuple[str, int], ...] = (
+    ("10:00", 600), ("12:00", 720), ("14:00", 840), ("15:00", 900), ("15:30", 930),
+)  # fmt: skip
+"""Decision times (label, minute of day). The price at tau is the close of the bar starting at tau - 1."""
+PART2_COSTS_RT: tuple[float, ...] = (0.0, 0.0002, 0.0004)
+"""Round-trip cost thresholds c of the targets y_c = 1 if g > c (0.0002 = 1 bp per side, the main one)."""
+PART2_GROUPS: dict[str, tuple[str, ...]] = {
+    "signal": ("abs_s", "s_rank60", "on_aligned", "intra_aligned", "d_long"),
+    "volatility": ("rv_sofar", "rv_fh", "vix_lag", "range_prev"),
+    "volume": ("vol_rel",),
+    "calendar": (
+        "fomc", "cpi", "payroll", "opex_monthly", "month_end", "quarter_end",
+        "dow_tue", "dow_wed", "dow_thu", "dow_fri",
+    ),
+    "path": ("last30_aligned", "last60_share", "hit20", "yest_s_aligned", "yest_r13_aligned"),
+}  # fmt: skip
+PART2_FEATURES: tuple[str, ...] = tuple(f for g in PART2_GROUPS.values() for f in g)
+PART2_TEST_START: date = date(2014, 1, 2)
+"""First tested session of Part 2 (the last is DATA_END); training starts with the table (2011-01-03)."""
+PART2_RANK_WINDOW: int = 60
+"""Previous sessions in s_rank60."""
+PART2_ROLL_WINDOW: int = 20
+"""Previous sessions in vol_rel and hit20."""
+
+# Part 2 models (P2-B): walk-forward, rules, baselines, bootstrap
+PART2_LOGIT_C: tuple[float, ...] = (0.01, 0.1, 1.0)
+"""Inverse regularisation options of the Part 2 logit (picked per test year by last-year log loss)."""
+PART2_HGB_GRID: tuple[tuple[int, int], ...] = ((2, 100), (2, 300), (3, 100), (3, 300))
+"""(max_depth, max_iter) options of the Part 2 boosted trees, in tie-break order."""
+PART2_HGB_LR: float = 0.05
+PART2_HGB_MIN_LEAF: int = 50
+PART2_MAX_ITER: int = 2000
+"""max_iter of the Part 2 logit; n_iter_ < PART2_MAX_ITER is asserted on each fit."""
+PART2_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+PART2_MAIN_Q: float = 0.20
+PART2_CUT_POOL: int = 250
+"""Top-q and big-move cut-offs on day t: the (1 - q) quantile of the most recent PART2_CUT_POOL earlier
+out-of-sample forecasts (abs(s) of earlier sessions for the big-move rule), strictly before t."""
+PART2_BOOT_REPS: int = 2_000
+PART2_AUC_ALARM: float = 0.75
+"""Every cell's test AUC must stay below this (a leak alarm); asserted."""
+PART2_SEED: int = 20261118
+PART2_SPLITS: dict[str, tuple[date, date]] = {
+    "pre_2020_05": (date(2014, 1, 2), date(2020, 5, 1)),
+    "post_2020_05": (date(2020, 5, 4), DATA_END),
+}
+PART2_COVID_OUT: tuple[date, date] = (date(2020, 2, 1), date(2020, 4, 30))
+PART2_EVAL_COSTS: tuple[float, ...] = (0.0, 0.0002, 0.0004)
+"""Evaluation costs, round trip (return units)."""
+PART2_MAIN_C_BP: int = 2
+PART2_HEADLINE_TAU: str = "15:30"
+PART2_SPLIT_MIN_DAYS: int = 30
+"""A split with fewer test days is not reported (only matters on synthetic data)."""
+
+# Part 2 report (figures and report; P2-C)
+PART2_REPORT_HEADLINE: tuple[str, int] = ("15:30", 2)
+"""Headline cell of the Part 2 report: decision time and the y threshold / evaluation cost in bp."""
+PART2_REPORT_Q: float = 0.20
+"""Share of days the headline rule trades."""
+PART2_REPORT_TOP_FEATURES: int = 5
+"""Picked-day description: how many features (largest standardised difference) are listed."""
+PART2_FIGURES: tuple[str, ...] = (
+    "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
+)  # fmt: skip
+"""File stems under `<out>/figures/`."""
