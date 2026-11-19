@@ -314,6 +314,9 @@ PART2_MAX_ITER: int = 2000
 """max_iter of the Part 2 logit; n_iter_ < PART2_MAX_ITER is asserted on each fit."""
 PART2_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
 PART2_MAIN_Q: float = 0.20
+PART2_CUT_POOL: int = 250
+"""Top-q and big-move cut-offs on day t: the (1 - q) quantile of the most recent PART2_CUT_POOL earlier
+out-of-sample forecasts (abs(s) of earlier sessions for the big-move rule), strictly before t."""
 PART2_BOOT_REPS: int = 2_000
 PART2_AUC_ALARM: float = 0.75
 """Every cell's test AUC must stay below this (a leak alarm); asserted."""

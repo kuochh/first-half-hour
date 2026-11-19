@@ -21,7 +21,8 @@ FEATURES = list(report_part2.FEAT)[:22]
 def fake_frames(skill: bool = True) -> dict[str, pl.DataFrame]:
     grid = pl.DataFrame([
         {"tau": t, "c_bp": c, "model": m, "auc": 0.52, "top20_minus_af": 0.0001 * (i + j + 1),
-         "se": 0.00004 * (k + 1), "d_af": 2.5}
+         "se": 0.00004 * (k + 1), "d_af": 2.5, "coverage": 0.18, "logloss": 0.6948,
+         "logloss_base": 0.6883}
         for i, t in enumerate(TAUS) for j, c in enumerate(CS) for k, m in enumerate(MODELS)
     ])  # fmt: skip
     rules = []
@@ -56,7 +57,7 @@ def fake_frames(skill: bool = True) -> dict[str, pl.DataFrame]:
                                           "auc": pl.Float64, "top20_mean_net": pl.Float64,
                                           "se": pl.Float64})  # fmt: skip
     picked = pl.DataFrame({
-        "feature": FEATURES, "mean_picked": [0.1 * i for i in range(22)],
+        "feature": FEATURES, "mean_picked": [0.00123 * i + 0.0001 for i in range(22)],
         "mean_other": [0.05] * 22, "std_diff": [(-1) ** i * 0.05 * i for i in range(22)],
     })  # fmt: skip
     per_year = pl.DataFrame({"year": list(range(2014, 2027)), "n_picked": [50] * 13,
@@ -80,6 +81,13 @@ def write_inputs(out, verdict="partly amplified", skill=True, cumulative=True):
         "verdict": verdict, "d_af": 2.6, "d_bm": 1.4, "d_0": 3.1, "skill": skill,
         "headline_model": "logit", "n_fits": 1234, "n_cells": 90, "synthetic": True,
         "data_window": ["2011-01-03", "2026-08-31"], "count_line": "part 2: 90 cells, 500 runs",
+        "cut_pool": 250, "headline_coverage": 0.18, "other_coverage": 0.15, "other_model": "hgb",
+        "other_d_af": 1.2, "other_d_bm": 1.4, "other_d_0": 0.6, "top_minus_bottom": 0.0001,
+        "top_minus_bottom_se": 0.00005, "headline_auc": 0.522, "other_auc": 0.51,
+        "headline_logloss": 0.6948, "other_logloss": 0.6981, "headline_logloss_base": 0.6883,
+        "other_logloss_base": 0.6883,
+        "expanding_pool": {m: {"diff_af": 0.0003, "se_af": 0.0002, "diff_bm": 0.0002,
+                               "se_bm": 0.0002, "coverage": 0.12} for m in ("logit", "hgb")},
     }  # fmt: skip
     (out / "part2_summary.json").write_text(json.dumps(summary))
     report_part2.make_figures(out)
@@ -103,6 +111,13 @@ def test_report_renders_both_languages_with_d50_labels_only(tmp_path):
     assert "previous close to 12:00" in en and "前一天收盤到 14:00" in zh
     assert "15:30 to close" in en and "15:30 到收盤" in zh
     assert "partly amplified" in en and "部分放大" in zh
+    for page in (en, zh):  # D50: r13 is never "last half-hour"; the volatility is 09:30 to 10:00
+        assert not re.search(r"last half-hour|first half-hour|最後半小時|開盤後半小時", page)
+        assert not re.search(r"same share|same number|同樣交易比例|交易比例和模型規則相同", page)
+    assert "0 bp (= sign agreement)" in en and "0 bp（＝方向相同）" in zh
+    assert "0.5 = no skill" in en and "0.5＝沒有預測力" in zh
+    assert "Sensitivity, expanding cut-off pools" in en and "敏感度檢查" in zh
+    assert "The other model (boosted trees)" in en and "d_af at or below 2" in en
     assert not [c for c in ANY_CELL.findall(zh) if CODE.search(c)], "code name in a Chinese table"
     assert not [c for c in ANY_CELL.findall(en) if CODE.search(c)], "code name in an English table"
     num = re.compile(r"-?\d+(\.\d+)?")
@@ -139,6 +154,7 @@ def test_every_grid_cell_shows_value_and_se(tmp_path):
     assert html.count("<tr>") == 1 + len(MODELS) * len(TAUS)
     for r in grid.iter_rows(named=True):
         assert f"{r['top20_minus_af'] * 1e4:.1f} ({r['se'] * 1e4:.1f})" in html
+    assert "18.0%" in html and "0.6948 (0.6883)" in html and "0.520" in html
     assert html in en
     for stem in config.PART2_FIGURES:
         assert (tmp_path / "figures" / f"{stem}.png").stat().st_size > 5000
@@ -150,8 +166,10 @@ def test_rules_table_values_and_baselines(tmp_path):
     # always follow once per cost; 3 q x (model, big-move, vol-only) per cost; header row
     assert html.count("<tr>") == 1 + 3 * (1 + 9)
     # mean_net 0.0002 * (1 + 0.2) = 2.4 bp, SE 0.5 bp -> "2.4 ± 1.0" (checked by hand)
-    assert "model, top 20% of days</td><td>2</td><td>600</td><td>2.4 ± 1.0" in html
-    assert "always follow the signal</td><td>2</td><td>3000</td><td>4.0 ± 1.0" in html
+    assert "model, top 20% of days</td><td>2</td><td>600</td><td>20.0%</td><td>2.4 ± 1.0" in html
+    assert (
+        "always follow the signal</td><td>2</td><td>3000</td><td>100.0%</td><td>4.0 ± 1.0" in html
+    )
 
 
 def test_labels_fail_loud(tmp_path):
@@ -162,8 +180,19 @@ def test_labels_fail_loud(tmp_path):
         report_part2._picked_table(f["picked"], "zh")
     with pytest.raises(AssertionError, match="no en label for verdict"):
         report_part2._lab(report_part2.VERDICT, "maybe", "en", "verdict")
-    with pytest.raises(AssertionError, match="unknown decision time"):
-        report_part2._signal("11:00", "en")
     two = f["grid"].filter(pl.col("tau") == "10:00")
     with pytest.raises(AssertionError, match="grid cell"):
         report_part2._grid_table(pl.concat([f["grid"], two.head(1)]), "en")
+
+
+def test_picked_table_has_no_scientific_notation_and_uses_bp():
+    f = fake_frames()["picked"].with_columns(
+        feature=pl.Series(["rv_sofar", "vix_lag"] + FEATURES[2:]),
+        mean_picked=pl.Series([0.00123456, 18.76] + [0.5] * 20),
+        mean_other=pl.Series([0.000456, 0.0000321] + [0.5] * 20),
+        std_diff=pl.Series([9.0, 8.0] + [0.0] * 20),
+    )
+    html = report_part2._picked_table(f, "en")
+    assert "12.3 bp" in html and "4.56 bp" in html  # 0.00123456 x 1e4 and 0.000456 x 1e4
+    assert "18.8<" in html and "0.0000321" in html  # vix plain, 3 significant figures
+    assert not re.search(r"\de-?\d", html)

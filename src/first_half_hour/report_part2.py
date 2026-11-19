@@ -22,7 +22,7 @@ import polars as pl
 
 from first_half_hour import config
 from first_half_hour.report import CSS
-from first_half_hour.report_part1 import RET_EN, RET_ZH, _lab
+from first_half_hour.report_part1 import _lab
 
 TAU, C_MAIN = config.PART2_REPORT_HEADLINE
 MODELS = ("logit", "hgb")
@@ -59,7 +59,7 @@ FEAT = {  # features, their groups, and the input-group steps (a leading "+" is 
     "intra_aligned": ("open to the decision time, in the signal's direction", "開盤到決策時間，朝訊號方向"),
     "d_long": ("signal is up", "訊號為正"),
     "rv_sofar": ("volatility so far today", "今天到目前為止的波動"),
-    "rv_fh": ("volatility of the first half-hour", "開盤後半小時的波動"),
+    "rv_fh": ("09:30 to 10:00 volatility", "09:30 到 10:00 的波動"),
     "vix_lag": ("VIX, previous session", "前一個交易日的 VIX"),
     "range_prev": ("high-low range, previous session", "前一個交易日的高低價差"),
     "vol_rel": ("volume so far relative to the last 20 sessions", "到目前為止的成交量相對過去 20 個交易日"),
@@ -81,17 +81,6 @@ FEAT = {  # features, their groups, and the input-group steps (a leading "+" is 
 }  # fmt: skip
 
 
-def _signal(tau: str, lang: str) -> str:
-    """The signal at decision time `tau`: D50 names for 10:00 and 15:30, else previous close to tau."""
-    names = RET_EN if lang == "en" else RET_ZH
-    if tau == "10:00":
-        return names["r1"]
-    if tau == "15:30":
-        return names["rod"]
-    assert tau in ("12:00", "14:00", "15:00"), f"unknown decision time {tau!r}"
-    return f"previous close to {tau}" if lang == "en" else f"前一天收盤到 {tau}"
-
-
 # ---------------------------------------------------------------- formats
 def _bp(v: float) -> str:
     assert v is not None and np.isfinite(v), f"missing number {v!r}"
@@ -107,6 +96,21 @@ def _pm(v: float, se: float, kind: str = "bp") -> str:
     if kind == "pct":
         return f"{v * 100:.1f}% ± {2 * se * 100:.1f}"
     return f"{v:.2f} ± {2 * se:.2f}"
+
+
+def _pct(share: float) -> str:
+    assert share is not None and np.isfinite(share) and 0 <= share <= 1, f"bad share {share!r}"
+    return f"{share * 100:.1f}%"
+
+
+def _sig3(v: float) -> str:
+    """3 significant figures, never scientific notation."""
+    assert v is not None and np.isfinite(v), f"missing number {v!r}"
+    if v == 0:
+        return "0"
+    dec = max(0, 2 - int(np.floor(np.log10(abs(v)))))
+    text = f"{v:.{dec}f}"
+    return "0" if float(text) == 0 else text
 
 
 def _q(q: float) -> str:
@@ -258,19 +262,31 @@ def make_figures(out: Path) -> None:
 TEXT = {
     "en": {
         "lang": "en",
-        "title": "Part 2: can a per-day classifier amplify the last half-hour effect?",
-        "h1": "Part 2: following the signal into the last half-hour, only on the days a model picks ({kind})",
+        "title": "Part 2: can a per-day classifier pick the days when the signal predicts 15:30 to close?",
+        "h1": "Part 2: following the signal from 15:30 to close, only on the days a model picks ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
         "warn": "Data window {start} to {end}. Test days 2014-01-02 to 2026-08-31 (half-days left out). Not yet fact-checked.",
         "count": "<p><b>{count_line}</b></p>",
         "verdict": "Verdict at the headline cell (SPY, {tau}, {c} bp round trip, {model}): <b>{v}</b>.",
         "numbers": (
             "The top {q}% of days, by the model, earn {d_af:.1f} paired standard errors more per trade than "
-            "always following, {d_bm:.1f} more than the big-move rule at the same share of days, and "
-            "{d_0:.1f} above zero. The test: amplified = all three above 2; not amplified = the top and "
-            "bottom fifth of days are within 2 paired standard errors of each other and the top "
-            "{q}% is not above always-follow by more than 2; partly amplified = otherwise, if above "
-            "always-follow by more than 2."
+            "always following, {d_bm:.1f} more than the big-move rule, and {d_0:.1f} above zero "
+            "(the model traded {cov:.1f}% of test days). The verdict rule: amplified = d_af, d_bm and d_0 "
+            "all above 2; partly amplified = d_af above 2 but not all three; not amplified = d_af at or "
+            "below 2. All rules use the same past-only cut-off method; realised shares of days traded are shown."
+        ),
+        "groups": (
+            "The five groups of days are descriptive: they are ranked on the whole test period, so they "
+            "cannot be traded. Top group minus bottom group: {tb:.1f} bp (+/- 2 SE {tb2:.1f})."
+        ),
+        "other": (
+            "The other model ({model}): d_af {d_af:.1f}, d_bm {d_bm:.1f}, d_0 {d_0:.1f} "
+            "(share of test days traded {cov:.1f}%)."
+        ),
+        "skillline": (
+            "Out-of-sample AUC at the headline cell: {model1} {auc1:.3f}, {model2} {auc2:.3f} (0.5 = no skill). "
+            "Log loss: {model1} {ll1:.4f}, {model2} {ll2:.4f}, against {base:.4f} for a constant forecast of "
+            "the training-span base rate."
         ),
         "fits": "Model fits behind this page: {n_fits} across {n_cells} cells (each cell is a decision time, a threshold, a model and a feature set).",
         "sec": "{n}. {title}",
@@ -282,20 +298,24 @@ TEXT = {
         ),
         "t2": "The rule against its baselines",
         "x2": (
-            "Headline cell, all test days. Mean net per trade in basis points, annualised Sharpe of the daily "
-            "series (zero on days not traded), hit rate (net above zero on traded days), each +/- 2 "
-            "standard errors from a day-resampling bootstrap that recomputes the traded days. "
-            "The last column is the rule minus always following, paired in the same draws. Baselines trade "
-            "the same share of days as the model rule. Cost rows: {costs} bp round trip."
+            "Headline cell (target threshold {c} bp), all test days. Mean net per trade in basis points, "
+            "annualised Sharpe of the daily series (zero on days not traded), hit rate (net above zero on "
+            "traded days), each +/- 2 standard errors from a day-resampling bootstrap that recomputes the "
+            "traded days. The last column is the rule minus always following, paired in the same draws. "
+            "All rules use the same past-only cut-off method; realised shares are shown in the share "
+            "column. Cost rows: {costs} bp round trip. The target threshold of 0 bp (= sign agreement) is "
+            "in the grid below."
         ),
         "t3": "Splits and days picked per year",
-        "x3": "The headline rule on three sub-periods of the test days.",
+        "x3": "The headline rule on three sub-periods of the test days, with the share of days it traded.",
         "t4": "Cumulative wealth",
         "t5": "By decision time and by cell",
         "x5": (
             "Top-{q}% days minus always following, after {c} bp, by decision time (left to right: "
-            "the signal measured from the previous close to each time). Every cell of the grid follows, "
-            "value and standard error (SE) in basis points."
+            "the signal measured from the previous close to each time). Every cell of the grid follows: "
+            "value and standard error (SE) in basis points, realised share of test days traded, "
+            "out-of-sample AUC (0.5 = no skill), and test log loss with the log loss of a constant "
+            "base-rate forecast in brackets. Rows use the target threshold shown in the column heading."
         ),
         "t6": "The picked days",
         "x6": (
@@ -317,35 +337,57 @@ TEXT = {
             "Sign agreement is the threshold 0 target: the signal's sign equals the sign of the 15:30 to close return. It is one cell, reported under both names.",
             "The signal at each decision time is the return from the previous close to that time: previous close to 10:00, previous close to 12:00, previous close to 14:00, previous close to 15:00, previous close to 15:30. The payoff is always the 15:30 to close return in the signal's direction (zero signal counts as up).",
             "Model settings (one penalty strength for the logistic regression, a depth and tree count for boosted trees) are chosen each test year by log loss on the year before, then refit on all earlier years. Training and validation always end before the test year.",
-            "The top-share cut-off at a day is the quantile of the model's out-of-sample scores on earlier days only. The big-move cut-off uses the size of the signal on all earlier sessions.",
+            "The top-share cut-off at a day is the (1 - share) quantile of the most recent {pool} out-of-sample scores of that cell on earlier days (a rolling window). The big-move cut-off is the same quantile of the size of the signal over the {pool} sessions before the day. All rules use the same past-only cut-off method; realised shares are shown.",
+            "The model (logistic regression or boosted trees) shown as the headline is the one with the lower log loss on the validation forecasts for the year before the first test year; no test-period label is read.",
             "AUC alarm: the run stops if any cell's out-of-sample AUC reaches 0.75, which would point to a leak.",
             "Costs are per trade, round trip, subtracted from each traded day; the threshold of the target and the evaluation cost are separate settings, equal in the main table.",
         ],
         "cols": {
             "rule": "rule", "cost": "cost (bp)", "trades": "trades", "mean": "net per trade (bp)",
             "sharpe": "Sharpe", "hit": "hit rate", "diff": "minus always follow (bp)",
+            "cov": "share of days traded",
             "split": "period", "year": "year", "picked": "days picked", "days": "test days",
             "feature": "feature", "mp": "mean on picked days", "mo": "mean on other days",
             "sd": "standardised difference", "step": "inputs", "added": "added", "auc": "AUC",
-            "top": "top-{q}% net per trade (bp)", "tau": "decision time", "cell": "{c} bp: value (SE)",
+            "top": "top-{q}% net per trade (bp)", "tau": "decision time", "cell": "{c} bp: value (SE)", "ccov": "{c} bp: share of days",
+            "cauc": "{c} bp: AUC (0.5 = no skill)", "cll": "{c} bp: log loss (constant)",
+            "c0": "0 bp (= sign agreement)", "cn": "{c} bp",
         },
         "alt": {"q": "Mean net per trade by group of days", "c": "Cumulative wealth",
                 "t": "Top days minus always follow by decision time", "g": "Value and SE in every cell"},
         "nocum": "The cumulative series was not available for this run.",
+        "expanding": (
+            "Sensitivity, expanding cut-off pools (all earlier out-of-sample scores; all earlier sessions "
+            "for the big-move rule), headline cell: logistic regression minus always follow "
+            "{diff_af_logit:.1f} ± {se_af_logit:.1f} (2 SE) bp, minus big-move {diff_bm_logit:.1f} ± {se_bm_logit:.1f} bp, "
+            "share of days traded {coverage_logit:.1f}%; boosted trees {diff_af_hgb:.1f} ± {se_af_hgb:.1f} bp, "
+            "{diff_bm_hgb:.1f} ± {se_bm_hgb:.1f} bp, {coverage_hgb:.1f}%."
+        ),
     },
     "zh": {
         "lang": "zh-Hant-TW",
-        "title": "第二部分：逐日分類器能放大最後半小時效應嗎？",
-        "h1": "第二部分：只在模型挑出的日子，順著訊號做到最後半小時（{kind}）",
+        "title": "第二部分：逐日分類器能挑出訊號預測 15:30 到收盤的日子嗎？",
+        "h1": "第二部分：只在模型挑出的日子，順著訊號做 15:30 到收盤（{kind}）",
         "synthetic": "合成資料（只檢查流程，不是結果）",
         "warn": "資料期間 {start} 到 {end}。測試日 2014-01-02 到 2026-08-31（不含提早收盤日）。尚未查核。",
         "count": "<p><b>{count_line}</b></p>",
         "verdict": "主要格子（SPY、{tau}、來回成本 {c} bp、{model}）的判定：<b>{v}</b>。",
         "numbers": (
-            "模型分數最高的 {q}% 的日子，每筆比一律跟著做多 {d_af:.1f} 個配對標準誤，比同樣交易比例的大幅移動規則多 "
-            "{d_bm:.1f} 個標準誤，高於零 {d_0:.1f} 個標準誤。判定標準：放得大＝三者都大於 2；"
-            "放不大＝最高與最低五分之一的日子差距在 2 個配對標準誤內，且前 {q}% 比一律跟著做的優勢不超過 2；"
-            "部分放大＝其餘情況下，只要比一律跟著做多出 2 個標準誤以上。"
+            "模型分數最高的 {q}% 的日子，每筆比一律跟著做多 {d_af:.1f} 個配對標準誤，比大幅移動規則多 "
+            "{d_bm:.1f} 個標準誤，高於零 {d_0:.1f} 個標準誤（模型交易了 {cov:.1f}% 的測試日）。判定規則：放得大＝d_af、d_bm、d_0 "
+            "三者都大於 2；部分放大＝d_af 大於 2，但不是三者都大於 2；放不大＝d_af 小於或等於 2。"
+            "所有規則都用同樣只看過去的門檻方法；實際交易日比例一併列出。"
+        ),
+        "groups": (
+            "五組日子只是描述：它們依整段測試期間的分數排序，所以不能拿來交易。最高組減最低組："
+            "{tb:.1f} bp（± 2 個標準誤 {tb2:.1f}）。"
+        ),
+        "other": (
+            "另一個模型（{model}）：d_af {d_af:.1f}、d_bm {d_bm:.1f}、d_0 {d_0:.1f}（交易了 {cov:.1f}% 的測試日）。"
+        ),
+        "skillline": (
+            "主要格子的樣本外 AUC：{model1} {auc1:.3f}、{model2} {auc2:.3f}（0.5＝沒有預測力）。"
+            "對數損失：{model1} {ll1:.4f}、{model2} {ll2:.4f}；固定用訓練期間基準比例的預測為 {base:.4f}。"
         ),
         "fits": "這一頁背後的模型擬合：{n_fits} 次，共 {n_cells} 個格子（每個格子是一個決策時間、一個門檻、一個模型和一組輸入）。",
         "sec": "{n}. {title}",
@@ -356,17 +398,19 @@ TEXT = {
         ),
         "t2": "規則與基準的比較",
         "x2": (
-            "主要格子、全部測試日。每筆平均淨報酬（bp）、日報酬序列的年化 Sharpe（沒交易的日子算 0）、"
+            "主要格子（目標門檻 {c} bp）、全部測試日。每筆平均淨報酬（bp）、日報酬序列的年化 Sharpe（沒交易的日子算 0）、"
             "命中率（有交易的日子淨報酬大於 0），各附 ± 2 個標準誤（以日為單位重抽樣，每次重抽都重新決定交易日）。"
-            "最後一欄是規則減一律跟著做，在同樣的重抽中配對。基準的交易比例和模型規則相同。成本列：來回 {costs} bp。"
+            "最後一欄是規則減一律跟著做，在同樣的重抽中配對。所有規則都用同樣只看過去的門檻方法；"
+            "實際交易日比例列在比例欄。成本列：來回 {costs} bp。門檻 0 bp（＝方向相同）見下方的格子表。"
         ),
         "t3": "分期結果與每年挑出的日子",
-        "x3": "主要規則在測試日的三個子期間。",
+        "x3": "主要規則在測試日的三個子期間，並列出它交易的日子比例。",
         "t4": "累積財富",
         "t5": "依決策時間與格子",
         "x5": (
             "前 {q}% 的日子減一律跟著做，扣除 {c} bp 後，依決策時間（訊號是前一天收盤到各個時間）。"
-            "下表是格子中的每一格：數值與標準誤（SE），單位 bp。"
+            "下表是格子中的每一格：數值與標準誤（SE），單位 bp；實際交易的測試日比例；樣本外 AUC（0.5＝沒有預測力）；"
+            "測試對數損失，括號內是固定用基準比例預測的對數損失。各欄依標題的目標門檻。"
         ),
         "t6": "被挑出的日子",
         "x6": "主要規則挑出的日子與沒挑出的日子相比，標準化差距最大的 {k} 個特徵（平均數的差除以標準差）。",
@@ -379,21 +423,31 @@ TEXT = {
             "正負號一致＝門檻 0 的目標：訊號的正負號等於 15:30 到收盤報酬的正負號。這是同一個格子，兩個名稱都報告。",
             "各決策時間的訊號是前一天收盤到該時間的報酬：前一天收盤到 10:00、前一天收盤到 12:00、前一天收盤到 14:00、前一天收盤到 15:00、前一天收盤到 15:30。報酬一律是 15:30 到收盤，順著訊號的方向（訊號為零算做多）。",
             "模型設定（邏輯迴歸的懲罰強度，梯度提升樹的深度與樹數）每個測試年用前一年的對數損失挑選，再用之前所有年份重新擬合。訓練與驗證一律在測試年之前結束。",
-            "某一天的前幾名門檻，取自更早日子的模型樣本外分數的分位數。大幅移動規則的門檻用更早所有交易日的訊號大小。",
+            "某一天的前幾名門檻，取自該格子更早日子最近 {pool} 個樣本外分數的 (1 - 比例) 分位數（滾動視窗）。大幅移動規則的門檻是這天之前 {pool} 個交易日訊號大小的同一個分位數。所有規則都用同樣只看過去的門檻方法；實際交易比例一併列出。",
+            "標示為主要的模型（邏輯迴歸或梯度提升樹），是用第一個測試年之前一年的驗證預測、對數損失較低的那個；不讀任何測試期間的標籤。",
             "AUC 警報：任何格子的樣本外 AUC 達到 0.75 就停止，因為那代表有洩漏。",
             "成本按每筆交易、來回，從每個有交易的日子扣除；目標的門檻與評估成本是兩個獨立設定，主表中相等。",
         ],
         "cols": {
             "rule": "規則", "cost": "成本（bp）", "trades": "交易筆數", "mean": "每筆淨報酬（bp）",
             "sharpe": "Sharpe", "hit": "命中率", "diff": "減一律跟著做（bp）",
+            "cov": "交易日比例",
             "split": "期間", "year": "年", "picked": "挑出的日子", "days": "測試日",
             "feature": "特徵", "mp": "挑出日的平均", "mo": "其他日的平均",
             "sd": "標準化差距", "step": "輸入", "added": "新增", "auc": "AUC",
-            "top": "前 {q}% 每筆淨報酬（bp）", "tau": "決策時間", "cell": "{c} bp：數值（SE）",
+            "top": "前 {q}% 每筆淨報酬（bp）", "tau": "決策時間", "cell": "{c} bp：數值（SE）", "ccov": "{c} bp：日子比例",
+            "cauc": "{c} bp：AUC（0.5＝沒有預測力）", "cll": "{c} bp：對數損失（固定預測）",
+            "c0": "0 bp（＝方向相同）", "cn": "{c} bp",
         },
         "alt": {"q": "各組日子的每筆平均淨報酬", "c": "累積財富",
                 "t": "依決策時間，前幾名日子減一律跟著做", "g": "每個格子的數值與 SE"},
         "nocum": "這次執行沒有累積序列可用。",
+        "expanding": (
+            "敏感度檢查，門檻改用擴展式（所有更早的樣本外分數；大幅移動規則用所有更早的交易日），主要格子："
+            "邏輯迴歸減一律跟著做 {diff_af_logit:.1f} ± {se_af_logit:.1f}（2 個標準誤）bp，減大幅移動規則 "
+            "{diff_bm_logit:.1f} ± {se_bm_logit:.1f} bp，交易日比例 {coverage_logit:.1f}%；梯度提升樹 "
+            "{diff_af_hgb:.1f} ± {se_af_hgb:.1f} bp、{diff_bm_hgb:.1f} ± {se_bm_hgb:.1f} bp、{coverage_hgb:.1f}%。"
+        ),
     },
 }  # fmt: skip
 
@@ -439,10 +493,11 @@ def _rules_table(rules: pl.DataFrame, model: str, lang: str) -> str:
         for rule, q, r in lines:
             diff = "" if rule == "always_follow" else _pm(r["diff_vs_af"], r["diff_vs_af_se"])
             rows.append([
-                _rule_label(rule, q, lang), f"{ce:g}", str(r["n_trades"]), _pm(r["mean_net"], r["se"]),
+                _rule_label(rule, q, lang), f"{ce:g}", str(r["n_trades"]), _pct(r["coverage"]),
+                _pm(r["mean_net"], r["se"]),
                 _pm(r["sharpe"], r["sharpe_se"], "plain"), _pm(r["hit"], r["hit_se"], "pct"), diff,
             ])  # fmt: skip
-    head = [c[k] for k in ("rule", "cost", "trades", "mean", "sharpe", "hit", "diff")]
+    head = [c[k] for k in ("rule", "cost", "trades", "cov", "mean", "sharpe", "hit", "diff")]
     return _table(head, rows)
 
 
@@ -458,9 +513,9 @@ def _splits_table(rules: pl.DataFrame, model: str, lang: str) -> str:
         x = r.filter(pl.col("split") == sp)
         assert x.height == 1, f"expected one headline row for split {sp!r}, got {x.height}"
         x = x.row(0, named=True)
-        rows.append([_lab(SPLIT, sp, lang, "split"), str(x["n_trades"]), _pm(x["mean_net"], x["se"]),
-                     _pm(x["diff_vs_af"], x["diff_vs_af_se"])])  # fmt: skip
-    return _table([c["split"], c["trades"], c["mean"], c["diff"]], rows)
+        rows.append([_lab(SPLIT, sp, lang, "split"), str(x["n_trades"]), _pct(x["coverage"]),
+                     _pm(x["mean_net"], x["se"]), _pm(x["diff_vs_af"], x["diff_vs_af_se"])])  # fmt: skip
+    return _table([c["split"], c["trades"], c["cov"], c["mean"], c["diff"]], rows)
 
 
 def _per_year_table(per_year: pl.DataFrame, lang: str) -> str:
@@ -480,7 +535,13 @@ def _quintile_table(quintiles: pl.DataFrame, model: str, lang: str) -> str:
 def _grid_table(grid: pl.DataFrame, lang: str) -> str:
     c = TEXT[lang]["cols"]
     costs = sorted(grid["c_bp"].unique().to_list())
-    head = [c["rule"], c["tau"], *(c["cell"].format(c=f"{x:g}") for x in costs)]
+    label = lambda x: c["c0"] if x == 0 else c["cn"].format(c=f"{x:g}")
+    head = [c["rule"], c["tau"]]
+    for x in costs:
+        head += [
+            c["cell"].format(c=label(x)), c["ccov"].format(c=label(x)),
+            c["cauc"].format(c=label(x)), c["cll"].format(c=label(x)),
+        ]  # fmt: skip
     rows = []
     for m in MODELS:
         for t in sorted(grid["tau"].unique().to_list()):
@@ -490,9 +551,22 @@ def _grid_table(grid: pl.DataFrame, lang: str) -> str:
                     (pl.col("model") == m) & (pl.col("tau") == t) & (pl.col("c_bp") == x)
                 )
                 assert r.height == 1, f"grid cell {m}, {t}, {x} bp: {r.height} rows"
-                line.append(f"{_bp(r['top20_minus_af'][0])} ({_bp(r['se'][0])})")
+                r = r.row(0, named=True)
+                line += [
+                    f"{_bp(r['top20_minus_af'])} ({_bp(r['se'])})", _pct(r["coverage"]),
+                    f"{r['auc']:.3f}", f"{r['logloss']:.4f} ({r['logloss_base']:.4f})",
+                ]  # fmt: skip
             rows.append(line)
     return _table(head, rows)
+
+
+BP_FEATURES = ("abs_s", "on_aligned", "intra_aligned", "rv_sofar", "rv_fh", "range_prev",
+               "last30_aligned", "yest_s_aligned", "yest_r13_aligned")  # fmt: skip
+
+
+def _feat_value(feature: str, v: float) -> str:
+    """Return and volatility features in bp (x 1e4), the rest plain; 3 significant figures."""
+    return f"{_sig3(v * 1e4)} bp" if feature in BP_FEATURES else _sig3(v)
 
 
 def _picked_table(picked: pl.DataFrame, lang: str) -> str:
@@ -502,8 +576,8 @@ def _picked_table(picked: pl.DataFrame, lang: str) -> str:
         .sort("a", descending=True)
         .head(config.PART2_REPORT_TOP_FEATURES)
     )
-    rows = [[_lab(FEAT, r["feature"], lang, "feature"), f"{r['mean_picked']:.3f}",
-             f"{r['mean_other']:.3f}", f"{r['std_diff']:.2f}"] for r in top.iter_rows(named=True)]  # fmt: skip
+    rows = [[_lab(FEAT, r["feature"], lang, "feature"), _feat_value(r["feature"], r["mean_picked"]),
+             _feat_value(r["feature"], r["mean_other"]), f"{r['std_diff']:.2f}"] for r in top.iter_rows(named=True)]  # fmt: skip
     return _table([c["feature"], c["mp"], c["mo"], c["sd"]], rows)
 
 
@@ -533,7 +607,28 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
         tau=TAU, c=C_MAIN, model=_lab(MODEL, model, lang, "model"),
         v=escape(_lab(VERDICT, s["verdict"], lang, "verdict")),
     )  # fmt: skip
-    numbers = tx["numbers"].format(q=q, d_af=s["d_af"], d_bm=s["d_bm"], d_0=s["d_0"])
+    pool = s["cut_pool"]
+    numbers = tx["numbers"].format(q=q, d_af=s["d_af"], d_bm=s["d_bm"], d_0=s["d_0"],
+                                   cov=s["headline_coverage"] * 100)  # fmt: skip
+    other = _lab(MODEL, s["other_model"], lang, "model")
+    other_line = tx["other"].format(model=other, d_af=s["other_d_af"], d_bm=s["other_d_bm"],
+                                    d_0=s["other_d_0"], cov=s["other_coverage"] * 100)  # fmt: skip
+    groups_line = tx["groups"].format(
+        tb=s["top_minus_bottom"] * 1e4, tb2=2 * s["top_minus_bottom_se"] * 1e4
+    )
+    skill_line = tx["skillline"].format(
+        model1=_lab(MODEL, model, lang, "model"), auc1=s["headline_auc"], ll1=s["headline_logloss"],
+        model2=other, auc2=s["other_auc"], ll2=s["other_logloss"], base=s["headline_logloss_base"],
+    )  # fmt: skip
+    assert abs(s["headline_logloss_base"] - s["other_logloss_base"]) < 1e-9, (
+        "base-rate log loss differs"
+    )
+    ep = s["expanding_pool"]
+    exp_note = tx["expanding"].format(
+        **{f"{k}_{m}": ep[m][k] * (100 if k == "coverage" else 1e4) * (2 if k.startswith("se") else 1)
+           for m in MODELS
+           for k in ("diff_af", "se_af", "diff_bm", "se_bm", "coverage")}
+    )  # fmt: skip
     costs = ", ".join(f"{x:g}" for x in COSTS)
     cum = img("part2_cumulative", "c") if "part2_cumulative" in imgs else p(tx["nocum"])
     groups = f["groups"]
@@ -549,7 +644,7 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
             img("part2_quintiles", "q"),
             _quintile_table(f["quintiles"], model, lang),
         ),
-        sec(2, p(tx["x2"].format(costs=costs)), _rules_table(f["rules"], model, lang)),
+        sec(2, p(tx["x2"].format(costs=costs, c=C_MAIN)), _rules_table(f["rules"], model, lang)),
         sec(
             3,
             p(tx["x3"]),
@@ -570,7 +665,12 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
             _picked_table(f["picked"], lang),
         ),
         sec(7, inputs),
-        sec(8, "<ul>" + "".join(f"<li>{escape(n)}</li>" for n in tx["notes"]) + "</ul>"),
+        sec(
+            8,
+            "<ul>"
+            + "".join(f"<li>{escape(n.format(pool=pool))}</li>" for n in [*tx["notes"], exp_note])
+            + "</ul>",
+        ),
     ]
     kind = tx["synthetic"] if s["synthetic"] else "SPY"
     warn = tx["warn"].format(start=s["data_window"][0], end=s["data_window"][1])
@@ -580,7 +680,7 @@ def _render(lang: str, s: dict, f: dict[str, pl.DataFrame], imgs: dict[str, str]
 <title>{escape(tx["title"])}</title><style>{CSS}</style></head><body>
 <h1>{escape(tx["h1"].format(kind=kind))}</h1>
 <p class="warn">{escape(warn)}</p>
-<div class="box">{tx["count"].format(count_line=escape(s["count_line"]))}<p>{verdict}</p>{p(numbers)}{p(fits)}</div>
+<div class="box">{tx["count"].format(count_line=escape(s["count_line"]))}<p>{verdict}</p>{p(numbers)}{p(other_line)}{p(groups_line)}{p(skill_line)}{p(fits)}</div>
 {"".join(body)}
 </body></html>"""
 

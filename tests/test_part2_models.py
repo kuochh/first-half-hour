@@ -6,6 +6,7 @@ import mlflow
 import numpy as np
 import polars as pl
 import pytest
+from sklearn.metrics import roc_auc_score
 
 from first_half_hour import config, part2
 
@@ -56,8 +57,11 @@ def fake_frame(seed=0, start=date(2015, 1, 1), end=date(2021, 12, 31), edge=0.0)
 
 
 def test_canary_trips_auc_alarm(monkeypatch):
-    f = fake_frame().with_columns(canary=pl.col("g") + 1e-5)  # leak: the payoff itself
-    f = f.with_columns(y_2=(pl.col("g") > 0.0002).cast(pl.Int64))
+    # leak: r13 (in the signal's direction, like every aligned feature) plus noise of sd 0.1 x sd(r13)
+    f = fake_frame()
+    noise = np.random.default_rng(7).standard_normal(f.height) * 0.1 * float(f["r13"].std())
+    f = f.with_columns(canary=pl.col("d") * pl.col("r13") + pl.Series(noise))
+    assert roc_auc_score(f["y_2"].to_numpy(), f["canary"].to_numpy()) > 0.9  # the leak is real
     with pytest.raises(AssertionError, match="leak alarm"):
         part2.walk_forward(f, "15:30", 2, "logit", [*FEATS, "canary"], "all")
     # no leak, no alarm
@@ -97,6 +101,12 @@ def test_cutoff_is_past_only_and_coverage_is_q():
     c = part2.past_cuts(p[:300], p[300:], (0.1, 0.2, 0.5))
     cov = (p[300:, None] >= c).mean(0)
     assert np.allclose(cov, [0.1, 0.2, 0.5], atol=0.03)
+    # rolling window: the pool is the last `window` values before the day (hand-checked, 4 values)
+    r = part2.past_cuts(np.array([1.0, 2.0, 3.0, 10.0]), np.array([20.0, 0.0]), (0.5,), window=3)
+    assert r[0, 0] == 3.0  # median of [2, 3, 10]
+    assert r[1, 0] == 10.0  # median of [3, 10, 20]
+    r = part2.past_cuts(np.array([1.0, 2.0, 3.0, 10.0]), np.array([20.0, 0.0]), (0.5,))
+    assert r[0, 0] == 2.5 and r[1, 0] == 3.0  # expanding: [1, 2, 3, 10] then + 20
 
 
 def test_run_all_rules_paired_se_and_counts():
@@ -130,11 +140,42 @@ def test_run_all_rules_paired_se_and_counts():
     assert res["groups"].height == 0 if not s["skill"] else res["groups"].height > 0
 
 
-def test_verdict_three_outcomes():
-    assert part2.verdict(3, 3, 3, 0.1, 0.01) == "amplified"
-    assert part2.verdict(1, 5, 5, 0.001, 0.01) == "not amplified"  # groups alike, d_af small
-    assert part2.verdict(3, 1, 3, 0.1, 0.01) == "partly amplified"
-    assert part2.verdict(1, 1, 1, 0.1, 0.01) == "not amplified"  # groups differ but no gain vs af
+def test_verdict_rule():
+    assert part2.verdict(3, 3, 3) == "amplified"
+    assert part2.verdict(3, 1, 3) == "partly amplified"
+    assert part2.verdict(3, 3, 1) == "partly amplified"
+    assert part2.verdict(2, 5, 5) == "not amplified"  # d_af must be strictly above 2
+    assert part2.verdict(1, 5, 5) == "not amplified"
+
+
+def test_headline_model_choice_reads_only_pre_test_rows_and_grid_has_baselines():
+    f = fake_frame()
+    res = part2.run_all(f, n_jobs=1, reps=50)
+    fc = res["forecasts"].filter((pl.col("tau") == "15:30") & (pl.col("c_bp") == 2)
+                                 & (pl.col("feature_set") == "all"))  # fmt: skip
+    pre = fc.filter((pl.col("kind") == "pre") & (pl.col("year") < 2018))
+    want = {}
+    for m in part2.MODELS:
+        x = pre.filter(pl.col("model") == m)
+        p, y = x["p"].to_numpy(), x["y"].to_numpy()
+        want[m] = float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))  # log loss by hand
+    assert pre["session"].max() < config.PART2_TEST_START
+    s = res["summary"]
+    assert np.allclose([s["pre_logloss"][m] for m in part2.MODELS], [want[m] for m in part2.MODELS])
+    assert s["headline_model"] == min(want, key=want.get)
+    # constant base-rate forecast log loss of test year 2018 = the cell's training-span base rate
+    g = res["grid"].filter((pl.col("tau") == "15:30") & (pl.col("c_bp") == 2)
+                           & (pl.col("model") == "logit")).row(0, named=True)  # fmt: skip
+    base = f.filter(pl.col("tau") == "15:30")
+    y = base["y_2"].to_numpy()
+    yr = base["year"].to_numpy()
+    ll = 0.0
+    for t in range(2018, 2022):
+        r = y[yr < t].mean()
+        yt = y[yr == t]
+        ll -= np.sum(yt * np.log(r) + (1 - yt) * np.log(1 - r))
+    assert np.isclose(g["logloss_base"], ll / (yr >= 2018).sum())
+    assert 0 < g["coverage"] < 1 and set(s["expanding_pool"]) == {"logit", "hgb"}
 
 
 def test_log_runs_counts_and_outputs(tmp_path):

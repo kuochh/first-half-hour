@@ -5,16 +5,19 @@ y_4 and the features). A "cell" is (tau, c_bp, model, feature_set). For test yea
 option on years < Y-1, scores log loss on year Y-1, picks the best (ties: first), refits the pick on
 years < Y and predicts Y; the picked option's year Y-1 forecasts are kept as "pre" forecasts.
 
-Rule cut-offs use only earlier days. The top-q pool is the cell's "test" forecasts before the day plus
+Rule cut-offs use only earlier days, all by the same method: the (1 - q) quantile of the most recent
+config.PART2_CUT_POOL earlier values. The top-q pool is the cell's "test" forecasts before the day plus
 the "pre" forecasts of the year before the first test year (later "pre" rows re-forecast days that
-already have a "test" forecast, so they are not pooled). Big-move uses abs(s) of every earlier session.
+already have a "test" forecast, so they are not pooled); big-move uses abs(s) of the earlier sessions.
+`window=None` gives the expanding pool (kept as a sensitivity for the headline cell). Realised
+coverage (share of test days traded) is reported with every rule.
 Bootstrap: stationary (arch's indices), whole days; the traded flag of a day is fixed by its past-only
 cut-off and the per-trade statistics are recomputed in every draw (so the traded count varies by draw).
 """
 
 import json
 import os
-from bisect import insort
+from bisect import bisect_left, insort
 from datetime import date
 from pathlib import Path
 
@@ -158,19 +161,27 @@ def walk_forward(frame, tau, c_bp, model, features, feature_set, first_test_year
 
 
 # ---------------------------------------------------------------- cut-offs
-def past_cuts(base: np.ndarray, seq: np.ndarray, qs) -> np.ndarray:
-    """Row i: the (1 - q) quantile (linear) of base + seq[:i], for each q. Past-only by construction."""
+def past_cuts(base: np.ndarray, seq: np.ndarray, qs, window: int | None = None) -> np.ndarray:
+    """Row i: the (1 - q) quantile (linear) of the last `window` values of base + seq[:i], for each q.
+
+    `window=None` keeps every earlier value (expanding pool). Past-only by construction."""
     assert base.size > 0, "empty cut-off pool"
-    pool = sorted(base.tolist())
+    assert window is None or window > 0, "window must be positive"
+    hist = base.tolist() + seq.tolist()
+    n0 = len(base)
+    start = 0 if window is None else max(0, n0 - window)
+    pool = sorted(hist[start:n0])
     out = np.empty((seq.size, len(qs)))
-    for i, v in enumerate(seq.tolist()):
+    for i in range(seq.size):
         m = len(pool)
         for j, q in enumerate(qs):
             pos = (m - 1) * (1 - q)
             lo = int(pos)
             hi = min(lo + 1, m - 1)
             out[i, j] = pool[lo] + (pos - lo) * (pool[hi] - pool[lo])
-        insort(pool, v)
+        insort(pool, hist[n0 + i])
+        if window is not None and len(pool) > window:
+            del pool[bisect_left(pool, hist[n0 + i - window])]
     return out
 
 
@@ -235,37 +246,47 @@ def _split_masks(sessions: np.ndarray) -> dict[str, np.ndarray]:
     return out
 
 
-def _flags(fc: pl.DataFrame, fcv: pl.DataFrame | None, tf: pl.DataFrame, qs):
-    """Test sessions, g, and the past-only trade flags {(rule, q): bool array} of one cell."""
+def _flags(
+    fc: pl.DataFrame, fcv: pl.DataFrame | None, tf: pl.DataFrame, qs, window=config.PART2_CUT_POOL
+):
+    """Test sessions, g, and the past-only trade flags {(rule, q): bool array} of one cell.
+
+    `window`: size of the rolling cut-off pool (None = expanding)."""
     te = fc.filter(pl.col("kind") == "test").sort("session")
     first = int(te["year"].min())
     pre = fc.filter((pl.col("kind") == "pre") & (pl.col("year") < first))
     assert pre.height > 0, "no pre forecasts to seed the cut-off"
     assert pre["session"].max() < te["session"].min(), "cut-off pool must precede the test days"
-    cut = past_cuts(pre["p"].to_numpy(), te["p"].to_numpy(), qs)
+    pre = pre.sort("session")
+    assert window is None or pre.height >= window // 2, "too few pre forecasts for the cut-off pool"
+    cut = past_cuts(pre["p"].to_numpy(), te["p"].to_numpy(), qs, window)
     flags = {("always_follow", 1.0): np.ones(te.height, bool)}
     for j, q in enumerate(qs):
         flags[("model", q)] = te["p"].to_numpy() >= cut[:, j]
     tf = tf.sort("session")
+    assert window is None or tf.filter(pl.col("session") < te["session"].min()).height >= window, (
+        "fewer earlier sessions than the big-move cut-off window"
+    )
     base = tf.filter(pl.col("session") < te["session"].min())["s"].abs().to_numpy()
     seq = te["s"].abs().to_numpy()
     assert (tf.filter(pl.col("session") >= te["session"].min())["session"].to_numpy()
             == te["session"].to_numpy()).all(), "test sessions differ from the tau's sessions"  # fmt: skip
-    cb = past_cuts(base, seq, qs)
+    cb = past_cuts(base, seq, qs, window)
     for j, q in enumerate(qs):
         flags[("big_move", q)] = seq >= cb[:, j]
     if fcv is not None:
         tv = fcv.filter(pl.col("kind") == "test").sort("session")
         assert (tv["session"].to_numpy() == te["session"].to_numpy()).all(), "vol-only days differ"
-        pv = fcv.filter((pl.col("kind") == "pre") & (pl.col("year") < first))
-        cv = past_cuts(pv["p"].to_numpy(), tv["p"].to_numpy(), qs)
+        pv = fcv.filter((pl.col("kind") == "pre") & (pl.col("year") < first)).sort("session")
+        cv = past_cuts(pv["p"].to_numpy(), tv["p"].to_numpy(), qs, window)
         for j, q in enumerate(qs):
             flags[("vol_only", q)] = tv["p"].to_numpy() >= cv[:, j]
     return te, flags
 
 
-def _rule_rows(fc, fcv, tf, key, boot, qs, c_evals, splits) -> pl.DataFrame:
-    te, flags = _flags(fc, fcv, tf, qs)
+def _rule_rows(fc, fcv, tf, key, boot, qs, c_evals, splits,
+               window=config.PART2_CUT_POOL) -> pl.DataFrame:  # fmt: skip
+    te, flags = _flags(fc, fcv, tf, qs, window)
     sess, g = te["session"].to_numpy(), te["g"].to_numpy()
     masks = _split_masks(sess)
     names = list(flags)
@@ -327,17 +348,15 @@ def _quintiles(fc, boot, key) -> pl.DataFrame:
 
 
 # ---------------------------------------------------------------- verdict
-def verdict(d_af: float, d_bm: float, d_0: float, tb: float, tb_se: float) -> str:
-    """amplified / partly amplified / not amplified (see the spec's Verdict section)."""
+def verdict(d_af: float, d_bm: float, d_0: float) -> str:
+    """amplified: all three d > 2; partly amplified: d_af > 2 otherwise; not amplified: d_af <= 2."""
     if d_af > 2 and d_bm > 2 and d_0 > 2:
         return "amplified"
-    if abs(tb) <= 2 * tb_se and d_af <= 2:
-        return "not amplified"
     return "partly amplified" if d_af > 2 else "not amplified"
 
 
 def _d(rules: pl.DataFrame, **flt) -> dict:
-    """The main-q, 2 bp, all-days model row of a cell as (d_af, d_bm, d_0, diff_af, se_af)."""
+    """The main-q, 2 bp, all-days model row of a cell as (d's, diff_af, se_af, coverage)."""
     r = rules.filter(
         (pl.col("rule") == "model") & (pl.col("q") == config.PART2_MAIN_Q)
         & (pl.col("c_eval_bp") == config.PART2_MAIN_C_BP) & (pl.col("split") == "all"),
@@ -348,6 +367,7 @@ def _d(rules: pl.DataFrame, **flt) -> dict:
     return {
         "d_af": r["diff_vs_af"] / r["diff_vs_af_se"], "d_bm": r["diff_vs_bm"] / r["diff_vs_bm_se"],
         "d_0": r["mean_net"] / r["se"], "diff_af": r["diff_vs_af"], "se_af": r["diff_vs_af_se"],
+        "coverage": r["coverage"],
     }  # fmt: skip
 
 
@@ -381,10 +401,15 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
     fcs, vals = walk(base)
     fcs = {(f["tau"][0], f["c_bp"][0], f["model"][0], f["feature_set"][0]): f for f in fcs}
 
-    # headline model: lower pooled log loss of the pre forecasts at the headline cell
+    # headline model: lower log loss over the "pre" forecasts dated before the first test year
+    # (the validation forecasts of the year before it); no test-period label is read
     pooled = {}
+    test_start = getattr(config, "PART2_TEST_START", date(2014, 1, 2))
     for m in MODELS:
-        pre = fcs[(head_tau, head_c, m, "all")].filter(pl.col("kind") == "pre")
+        fc = fcs[(head_tau, head_c, m, "all")]
+        pre = fc.filter((pl.col("kind") == "pre") & (pl.col("year") < first))
+        assert pre.height > 0, "no pre forecasts before the first test year"
+        assert pre["session"].max() < test_start, "headline model choice reads a test-period row"
         pooled[m] = float(log_loss(pre["y"].to_numpy(), pre["p"].to_numpy(), labels=[0, 1]))
     head_model = min(MODELS, key=lambda m: pooled[m])  # ties: logit (listed first)
 
@@ -406,8 +431,7 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
     q_head = quints.filter(
         (pl.col("tau") == head_tau) & (pl.col("c_bp") == head_c) & (pl.col("model") == head_model)
     ).row(0, named=True)
-    verd = verdict(hd["d_af"], hd["d_bm"], hd["d_0"], q_head["top_minus_bottom"],
-                   q_head["top_minus_bottom_se"])  # fmt: skip
+    verd = verdict(hd["d_af"], hd["d_bm"], hd["d_0"])
     skill = hd["d_af"] > 2
 
     # input-group steps (headline cell and model only, only when the skill gate passes)
@@ -450,7 +474,7 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
 
     forecasts = pl.concat(list(fcs.values()))
     val = pl.concat(vals)
-    grid = _grid(rules, forecasts)
+    grid = _grid(rules, forecasts, by_tau)
     picked, per_year, cumulative = _headline_frames(
         fcs[(head_tau, head_c, head_model, "all")], by_tau[head_tau], feats, groups, rules, boot,
         head_model, qs,
@@ -460,6 +484,17 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
     n_fits = val.height + n_cell_years
     other = next(m for m in MODELS if m != head_model)
     ho = _d(rules, tau=head_tau, c_bp=head_c, model=other, feature_set="all")
+    expanding = {}  # sensitivity: expanding cut-off pools (the first version of the rules)
+    for m in MODELS:
+        key = (head_tau, head_c, m, "all")
+        r = _rule_rows(fcs[key], None, by_tau[head_tau], key, boot, (config.PART2_MAIN_Q,),
+                       (config.PART2_EVAL_COSTS[1],), ("all",), window=None)  # fmt: skip
+        r = r.filter(pl.col("rule") == "model").row(0, named=True)
+        expanding[m] = {k: float(r[v]) for k, v in (
+            ("diff_af", "diff_vs_af"), ("se_af", "diff_vs_af_se"), ("diff_bm", "diff_vs_bm"),
+            ("se_bm", "diff_vs_bm_se"), ("coverage", "coverage"))}  # fmt: skip
+    hg = {m: grid.filter((pl.col("tau") == head_tau) & (pl.col("c_bp") == head_c)
+                         & (pl.col("model") == m)).row(0, named=True) for m in MODELS}  # fmt: skip
     summary = {
         "verdict": verd, "d_af": hd["d_af"], "d_bm": hd["d_bm"], "d_0": hd["d_0"],
         "diff_af": hd["diff_af"], "se_af": hd["se_af"],
@@ -471,7 +506,12 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
         "other_d_bm": ho["d_bm"], "other_d_0": ho["d_0"],
         "n_fits": int(n_fits), "n_cells": int(cells), "n_runs": int(cells + n_cell_years),
         "boot_reps": reps, "first_test_year": first,
-        "max_test_auc": float(grid["auc"].max()),
+        "max_test_auc": float(grid["auc"].max()), "cut_pool": config.PART2_CUT_POOL,
+        "headline_coverage": hd["coverage"], "other_coverage": ho["coverage"],
+        "expanding_pool": expanding,
+        "headline_auc": hg[head_model]["auc"], "headline_logloss": hg[head_model]["logloss"],
+        "headline_logloss_base": hg[head_model]["logloss_base"], "other_auc": hg[other]["auc"],
+        "other_logloss": hg[other]["logloss"], "other_logloss_base": hg[other]["logloss_base"],
     }  # fmt: skip
     return {
         "forecasts": forecasts, "rules": rules, "quintiles": quints, "grid": grid,
@@ -494,15 +534,29 @@ def _group_steps(groups, head_model) -> list[str]:
     return ["vol_only"] + ["+".join(order[: i + 1]) for i in range(1, len(order) - 1)] + ["all"]
 
 
-def _grid(rules: pl.DataFrame, forecasts: pl.DataFrame) -> pl.DataFrame:
+def _base_logloss(sub: pl.DataFrame, c_bp: int, te: pl.DataFrame) -> float:
+    """Log loss on the test days of a constant forecast: for each test year, the base rate of y over
+    that tau's rows of earlier years (the training span)."""
+    ycol, parts = f"y_{c_bp}", []
+    for yr in sorted(te["year"].unique().to_list()):
+        rate = float(sub.filter(pl.col("year") < yr)[ycol].mean())
+        y = te.filter(pl.col("year") == yr)["y"].to_numpy()
+        parts.append((y, np.full(y.size, rate)))
+    return float(log_loss(np.concatenate([a for a, _ in parts]),
+                          np.concatenate([b for _, b in parts]), labels=[0, 1]))  # fmt: skip
+
+
+def _grid(rules: pl.DataFrame, forecasts: pl.DataFrame, by_tau: dict) -> pl.DataFrame:
     te = forecasts.filter((pl.col("kind") == "test") & (pl.col("feature_set") == "all"))
-    auc = pl.DataFrame(
-        [
-            {**dict(zip(["tau", "c_bp", "model"], k, strict=True)),
-             "auc": float(roc_auc_score(f["y"].to_numpy(), f["p"].to_numpy()))}
-            for k, f in te.group_by(["tau", "c_bp", "model"], maintain_order=True)
-        ]
-    )  # fmt: skip
+    cells = []
+    for k, f in te.group_by(["tau", "c_bp", "model"], maintain_order=True):
+        y, p = f["y"].to_numpy(), f["p"].to_numpy()
+        cells.append({
+            **dict(zip(["tau", "c_bp", "model"], k, strict=True)),
+            "auc": float(roc_auc_score(y, p)), "logloss": float(log_loss(y, p, labels=[0, 1])),
+            "logloss_base": _base_logloss(by_tau[k[0]], k[1], f),
+        })  # fmt: skip
+    auc = pl.DataFrame(cells)
     r = rules.filter(
         (pl.col("rule") == "model")
         & (pl.col("q") == config.PART2_MAIN_Q)
@@ -515,6 +569,7 @@ def _grid(rules: pl.DataFrame, forecasts: pl.DataFrame) -> pl.DataFrame:
         top20_minus_af="diff_vs_af",
         se="diff_vs_af_se",
         top20_mean_net="mean_net",
+        coverage="coverage",
     )
     out = auc.join(r, on=["tau", "c_bp", "model"]).with_columns(
         d_af=pl.col("top20_minus_af") / pl.col("se")
