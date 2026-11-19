@@ -32,7 +32,7 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     before = (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID)
     cli.main(["reproduce", "--synthetic", "--out", str(tmp_path)])
     lines = capsys.readouterr().out.strip().splitlines()
-    printed, printed2, printed3 = lines[-3], lines[-2], lines[-1]  # part 1 needs the P1-2 branch
+    printed, printed2, printed3, printed4 = lines[-4:]
     assert (config.DATA_START, config.SAMPLES, config.BREAK_DATES, config.CH2_VALID) == before, (
         "config not restored"
     )
@@ -94,6 +94,10 @@ def test_reproduce_synthetic_end_to_end(tmp_path, monkeypatch, capsys):
     assert printed3.startswith("part 1: 13 items, ")
     assert printed3 in (tmp_path / "part1_report.html").read_text()
     assert printed3 in (tmp_path / "part1_report_zh.html").read_text()
+    assert printed4.startswith("part 2: ") and "model fits" in printed4
+    for name in ("part2_report.html", "part2_report_zh.html"):
+        assert printed4 in (tmp_path / name).read_text()
+    assert all((tmp_path / "figures" / f"{s}.png").exists() for s in config.PART2_FIGURES)
 
 
 def _check_chapter2(out, printed):
