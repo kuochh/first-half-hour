@@ -276,3 +276,30 @@ PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.0618}
 """Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
 PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
+
+# Part 2 models (P2-B): walk-forward, rules, baselines, bootstrap
+PART2_LOGIT_C: tuple[float, ...] = (0.01, 0.1, 1.0)
+"""Inverse regularisation options of the Part 2 logit (picked per test year by last-year log loss)."""
+PART2_HGB_GRID: tuple[tuple[int, int], ...] = ((2, 100), (2, 300), (3, 100), (3, 300))
+"""(max_depth, max_iter) options of the Part 2 boosted trees, in tie-break order."""
+PART2_HGB_LR: float = 0.05
+PART2_HGB_MIN_LEAF: int = 50
+PART2_MAX_ITER: int = 2000
+"""max_iter of the Part 2 logit; n_iter_ < PART2_MAX_ITER is asserted on each fit."""
+PART2_QS: tuple[float, ...] = (0.10, 0.20, 0.50)
+PART2_MAIN_Q: float = 0.20
+PART2_BOOT_REPS: int = 2_000
+PART2_AUC_ALARM: float = 0.75
+"""Every cell's test AUC must stay below this (a leak alarm); asserted."""
+PART2_SEED: int = 20261118
+PART2_SPLITS: dict[str, tuple[date, date]] = {
+    "pre_2020_05": (date(2014, 1, 2), date(2020, 5, 1)),
+    "post_2020_05": (date(2020, 5, 4), DATA_END),
+}
+PART2_COVID_OUT: tuple[date, date] = (date(2020, 2, 1), date(2020, 4, 30))
+PART2_EVAL_COSTS: tuple[float, ...] = (0.0, 0.0002, 0.0004)
+"""Evaluation costs, round trip (return units)."""
+PART2_MAIN_C_BP: int = 2
+PART2_HEADLINE_TAU: str = "15:30"
+PART2_SPLIT_MIN_DAYS: int = 30
+"""A split with fewer test days is not reported (only matters on synthetic data)."""
