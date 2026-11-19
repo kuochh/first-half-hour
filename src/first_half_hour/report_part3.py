@@ -191,11 +191,13 @@ def plot_grid(grid: pl.DataFrame, path: Path) -> None:
         ax.errorbar(g["_i"].to_numpy(), g["top20_minus_af"].to_numpy() * 1e4,
                     yerr=2 * g["se"].to_numpy() * 1e4, fmt="o", capsize=3, color="C0")  # fmt: skip
         only = g.filter(pl.col("beats_af") & ~pl.col("finding"))
-        ax.plot(only["_i"].to_numpy(), only["top20_minus_af"].to_numpy() * 1e4, "D", ms=9, mfc="none",
-                mec="C1", mew=1.5, label="beats always follow only")  # fmt: skip
+        if only.height:
+            ax.plot(only["_i"].to_numpy(), only["top20_minus_af"].to_numpy() * 1e4, "D", ms=9,
+                    mfc="none", mec="C1", mew=1.5, label="beats always follow only")  # fmt: skip
         hit = g.filter(pl.col("finding"))
-        ax.plot(hit["_i"].to_numpy(), hit["top20_minus_af"].to_numpy() * 1e4, "*", ms=16,
-                color="gold", mec="black", label="finding")  # fmt: skip
+        if hit.height:  # no empty legend entry
+            ax.plot(hit["_i"].to_numpy(), hit["top20_minus_af"].to_numpy() * 1e4, "*", ms=16,
+                    color="gold", mec="black", label="finding")  # fmt: skip
         hit = g.filter(pl.col("beats_af"))
         ax.axhline(0, color="black", lw=0.8)
         ax.set_xticks(range(len(taus)), taus, fontsize=8)
