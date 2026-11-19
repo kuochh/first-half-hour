@@ -38,6 +38,7 @@ from first_half_hour import (
     regress,
     report,
     report_part1,
+    report_part2,
     returns,
     synthetic,
     timing,
@@ -83,6 +84,16 @@ SYNTHETIC_PART1_OVERRIDES = {
     "OFFICIAL_CLOSE_VERIFY": False,  # the stub CSV has no recorded size or hash
 }
 """Part 1, synthetic: one warm-up year (past the tercile warm-up), then two years per window."""
+
+
+SYNTHETIC_PART2_OVERRIDES = {
+    "DATA_START": date(2016, 1, 1),
+    "DATA_END": date(2020, 12, 31),
+    "PART2_TEST_START": date(2018, 1, 1),
+    "PART2_BOOT_REPS": 100,
+    "OFFICIAL_CLOSE_VERIFY": False,  # the stub CSV has no recorded size or hash
+}
+"""Part 2, synthetic: train from 2016, first test year 2018 (validation 2017), few bootstrap draws."""
 
 
 @contextmanager
@@ -449,10 +460,78 @@ def _part1(data: Path, daily: Path, out: Path, synth: bool) -> str:
     return count_line
 
 
+def _run_part2(data: Path, daily: Path, out: Path, synth: bool) -> tuple[int, int]:
+    from first_half_hour import (
+        part1,
+        part2,
+        part2_features,
+    )  # P2-A / P2-B, imported where they are used
+
+    cal = calendar.sessions(config.DATA_START, config.DATA_END)
+    table = part1.part1_table(data, daily, cal)
+    ctrl = controls.controls(table, cal, daily)
+    frame = part2_features.frame(table, ctrl, data, cal)
+    results = part2.run_all(frame)
+    n_parent, n_child = part2.log_runs(results)
+    part2.write_outputs(
+        results, out
+    )  # `<out>/part2/*.parquet` (private, D7), `<out>/part2_summary.json`
+    path = out / "part2_summary.json"
+    extra = {
+        "synthetic": synth,
+        "data_window": [config.DATA_START.isoformat(), config.DATA_END.isoformat()],
+        "bootstrap_reps": config.PART2_BOOT_REPS,
+    }
+    path.write_text(json.dumps(json.loads(path.read_text()) | extra, indent=2))
+    return n_parent, n_child
+
+
+def _part2(data: Path, daily: Path, out: Path, synth: bool) -> str:
+    name = "part2-synthetic" if synth else "part2"
+    started_ms = _start_store(out, name)
+    if synth:
+        with tempfile.TemporaryDirectory() as tmp, _synthetic_config(SYNTHETIC_PART2_OVERRIDES):
+            root = Path(tmp)
+            synthetic.write_synthetic(
+                root / "raw", ["SPY"], date(2016, 1, 4), date(2020, 12, 31),
+                SYNTHETIC_BETA, SYNTHETIC_SEED,
+            )  # fmt: skip
+            _write_stub_daily(root / "daily", date(2015, 11, 1), dense_events=True)
+            cal = calendar.sessions(date(2016, 1, 1), date(2020, 12, 31))
+            stub_table = returns.daily_table(root / "raw", "SPY", cal)
+            synthetic.write_stub_official_close(
+                root / "raw", root / "daily", stub_table, SYNTHETIC_SEED
+            )
+            n_parent, n_child = _run_part2(root / "raw", root / "daily", out, True)
+    else:
+        n_parent, n_child = _run_part2(data, daily, out, False)
+    exp = mlflow.get_experiment_by_name(name)
+    found = MlflowClient().search_runs(
+        [exp.experiment_id],
+        filter_string=f"attributes.start_time >= {started_ms}",
+        max_results=50_000,
+    )
+    assert len(found) == n_parent + n_child, (
+        f"MLflow holds {len(found)}, logged {n_parent + n_child}"
+    )
+    path = out / "part2_summary.json"
+    summary = json.loads(path.read_text())
+    count_line = (
+        f"part 2: {n_parent} cells, {n_parent + n_child} runs ({n_child} nested), "
+        f"{summary['n_fits']} model fits"
+    )
+    path.write_text(
+        json.dumps(summary | {"count_line": count_line, "n_runs": len(found)}, indent=2)
+    )
+    report_part2.make_figures(out)
+    report_part2.write_part2_report(out)
+    return count_line
+
+
 def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: str = "all") -> str:
-    """Run chapter 1, 2 and/or part 1 end to end; return the count line(s), asserted against MLflow."""
-    assert chapter in ("1", "2", "part1", "all"), (
-        f"chapter must be 1, 2, part1 or all, got {chapter!r}"
+    """Run chapter 1, 2, part 1 and/or part 2 end to end; return the count line(s), asserted against MLflow."""
+    assert chapter in ("1", "2", "part1", "part2", "all"), (
+        f"chapter must be 1, 2, part1, part2 or all, got {chapter!r}"
     )
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -463,4 +542,6 @@ def reproduce(data: Path, daily: Path, out: Path, synth: bool = False, chapter: 
         lines.append(_chapter2(data, daily, out, synth))
     if chapter in ("part1", "all"):
         lines.append(_part1(data, daily, out, synth))
+    if chapter in ("part2", "all"):
+        lines.append(_part2(data, daily, out, synth))
     return "\n".join(lines)

@@ -276,3 +276,15 @@ PART1_PAPER_SLOPES: dict[str, float] = {"r1": 0.069, "rod": 0.0618}
 """Paper slopes drawn in the rolling figure: Gao WP Oct 2014 Table 1; Baltussen SSRN Aug 2020 Table B1."""
 PART1_FIGURES: tuple[str, str] = ("part1_cumulative", "part1_rolling_slope")
 """File stems under `<out>/figures/`."""
+
+# Part 2 report (figures and report; P2-C)
+PART2_REPORT_HEADLINE: tuple[str, int] = ("15:30", 2)
+"""Headline cell of the Part 2 report: decision time and the y threshold / evaluation cost in bp."""
+PART2_REPORT_Q: float = 0.20
+"""Share of days the headline rule trades."""
+PART2_REPORT_TOP_FEATURES: int = 5
+"""Picked-day description: how many features (largest standardised difference) are listed."""
+PART2_FIGURES: tuple[str, ...] = (
+    "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
+)  # fmt: skip
+"""File stems under `<out>/figures/`."""
