@@ -51,7 +51,7 @@ def official_close(table: pl.DataFrame, csv_path: Path, dividends_path: Path) ->
     in_window = csv.filter(pl.col("date").is_between(first, last))
     assert (in_window["Stock Splits"] == 0).all(), "a stock split inside the window"
 
-    # Dividends: Yahoo against the owner's dividend file, same dates and amounts.
+    # Dividends: Yahoo against the separate dividends file, same dates and amounts.
     div = csv.filter((pl.col("Dividends") > 0) & (pl.col("date") <= last))
     ours = pl.read_csv(dividends_path, schema_overrides={"ex_date": pl.Date}).filter(
         pl.col("ex_date").is_between(first, last)

@@ -154,7 +154,7 @@ PROB_CLIP_EPS: float = 1e-6
 
 CH2_Z_FEATURE: bool = True
 """Add z = ln(1+TARGET_B) / (sigma sqrt(tau)) to the feature list so the logistic tiers nest the
-calibrated formula (added on the plan auditor's advice before any real-data result was seen)."""
+calibrated formula (added before any real-data result was seen)."""
 TOUCH_REL_TOL: float = 1e-9
 """Relative tolerance for a touch exactly at P10 * (1 +/- b), so float rounding cannot turn it into a miss."""
 

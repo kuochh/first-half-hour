@@ -53,7 +53,8 @@ def _effect() -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-def _grid(finding_cells=(("bonds", "15:30"),), pass_cells=()) -> pl.DataFrame:
+def _grid(finding_cells=(("bonds", "15:30"),), pass_cells=(), real=()) -> pl.DataFrame:
+    """`finding_cells` pass the earlier rule (beats always-follow); `real` are findings under the full rule."""
     rows = []
     for c in CLASSES:
         for i, t in enumerate(TAUS):
@@ -63,7 +64,7 @@ def _grid(finding_cells=(("bonds", "15:30"),), pass_cells=()) -> pl.DataFrame:
                 "d_af": 2.5 if hit or (c, t) in pass_cells else 0.7, "d_bm": 1.1, "d_vol": 0.9,
                 "coverage": 0.19, "mean_auc": 0.512, "d_af_pre": 1.5, "d_af_post": 1.25,
                 "d_af_nocovid": 2.0, "diff_pre": 0.0001, "diff_post": 0.0001,
-                "diff_nocovid": 0.0001, "finding": hit,
+                "diff_nocovid": 0.0001, "d_0": 1.0, "beats_af": hit, "finding": (c, t) in real,
             })  # fmt: skip
     return pl.DataFrame(rows)
 
@@ -107,7 +108,7 @@ def write_inputs(out, finding_cells=(("bonds", "15:30"),), n_pass=1):
         v.write_parquet(d / f"{k}.parquet")
     summary = {
         "n_etfs": len(SYMBOLS), "n_cells": 20, "n_pass_full": n_pass,
-        "n_findings": len(finding_cells), "findings": [], "n_fits": 777, "synthetic": True,
+        "n_beats_af": len(finding_cells), "n_findings": 0, "findings": [], "n_fits": 777, "synthetic": True,
         "data_window": ["2011-01-03", "2026-08-31"], "count_line": "part 3: 5 ETFs, 99 runs",
         "class_days_missing": {f"{c} {t}": (4 + i if c == "gold" else 0)
                                for c in CLASSES for i, t in enumerate(TAUS)},
@@ -147,14 +148,26 @@ def test_report_renders_both_languages_with_d50_labels_only(tmp_path):
 def test_findings_sentence_counts_and_chance_remark(tmp_path):
     write_inputs(tmp_path, n_pass=2)
     en, zh = pages(tmp_path)
-    assert "2 of 20 cells" in en and "1 are findings (bonds, 15:30)" in en
+    assert "2 of 20 cells" in en and "1 of them also keep a positive gain" in en
+    assert (
+        "2020-04 (bonds, 15:30)." in en and "tightened after seeing the results): 0 findings." in en
+    )
     assert "one or two passing the first test by chance is expected" in en
-    assert "20 個格子" in zh and "有 2 個格子" in zh and "共 1 個（債券, 15:30）" in zh
+    assert (
+        "有 2 個格子" in zh and "其中 1 個" in zh and "（債券, 15:30）" in zh and "共 0 個。" in zh
+    )
+
+
+def test_full_rule_findings_are_named(tmp_path):
+    grid = _grid(real=(("bonds", "15:30"),))
+    s = {"n_pass_full": 1, "n_beats_af": 1, "n_findings": 1, "n_cells": 20}
+    en = report_part3._findings_text(grid, _rules(), s, "en")
+    assert "results): 1 findings (bonds, 15:30)." in en
 
 
 def test_findings_sentence_counts_negative_net_and_big_move_from_frames():
     grid = _grid()  # one finding, bonds 15:30: model net 0.0002 * 1.2 = 2.4 bp > 0, d_bm 1.1
-    s = {"n_pass_full": 1, "n_findings": 1, "n_cells": 20}
+    s = {"n_pass_full": 1, "n_beats_af": 1, "n_findings": 0, "n_cells": 20}
     en = report_part3._findings_text(grid, _rules(), s, "en")
     assert (
         "in 0 the model's net per trade after 2 bp is still below zero, and in 0 the model beats"
@@ -207,7 +220,7 @@ def test_summary_disagreeing_with_grid_fails_loud(tmp_path):
     write_inputs(tmp_path)
     s = json.loads((tmp_path / "part3_summary.json").read_text())
     (tmp_path / "part3_summary.json").write_text(json.dumps(s | {"n_findings": 3}))
-    with pytest.raises(AssertionError, match="grid findings 1, summary 3"):
+    with pytest.raises(AssertionError, match="grid findings 0, summary 3"):
         report_part3.write_part3_report(tmp_path)
 
 

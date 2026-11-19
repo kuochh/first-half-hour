@@ -146,10 +146,20 @@ def _class_rows(members, cls, tau, boot, c_evals, splits) -> pl.DataFrame:
 
 
 # ---------------------------------------------------------------- grid and findings
-def finding(d_af: float, diffs: list) -> bool:
-    """d_af > 2 on all test days AND the difference (model - always-follow) positive in every robustness
-    version (None, i.e. a split too short to report, fails)."""
+def beats_af(d_af: float, diffs: list) -> bool:
+    """The first test: d_af > 2 on all test days AND the difference (model - always-follow) positive in
+    every robustness version (None, i.e. a split too short to report, fails)."""
     return bool(d_af > config.PART3_FINDING_D and all(d is not None and d > 0 for d in diffs))
+
+
+def finding(d_af: float, diffs: list, d_bm: float | None, d_0: float | None) -> bool:
+    """A finding: `beats_af`, AND the model beats the big-move rule by more than 2 paired SE, AND its net
+    per trade after costs is above zero by more than 2 SE (tightened after the first results)."""
+    return bool(
+        beats_af(d_af, diffs)
+        and d_bm is not None and d_bm > config.PART3_FINDING_D
+        and d_0 is not None and d_0 > config.PART3_FINDING_D
+    )  # fmt: skip
 
 
 def _grid(class_rules: pl.DataFrame, aucs: pl.DataFrame) -> pl.DataFrame:
@@ -163,6 +173,7 @@ def _grid(class_rules: pl.DataFrame, aucs: pl.DataFrame) -> pl.DataFrame:
         d_af=pl.col("diff_vs_af") / pl.col("diff_vs_af_se"),
         d_bm=pl.col("diff_vs_bm") / pl.col("diff_vs_bm_se"),
         d_vol=pl.col("diff_vs_vol") / pl.col("diff_vs_vol_se"), coverage="coverage",
+        d_0=pl.col("mean_net") / pl.col("se"),
     )  # fmt: skip
     mean_auc = aucs.group_by(["class", "tau"]).agg(mean_auc=pl.col("auc").mean())
     out = out.join(mean_auc, on=["class", "tau"], how="left")
@@ -174,12 +185,16 @@ def _grid(class_rules: pl.DataFrame, aucs: pl.DataFrame) -> pl.DataFrame:
         out = out.join(r, on=["class", "tau"], how="left")
     diff_cols = [f"diff_{s}" for s in config.PART3_ROBUST.values()]
     out = out.with_columns(
-        finding=pl.struct("d_af", *diff_cols).map_elements(
-            lambda r: finding(r["d_af"], [r[c] for c in diff_cols]), return_dtype=pl.Boolean
-        )
+        beats_af=pl.struct("d_af", *diff_cols).map_elements(
+            lambda r: beats_af(r["d_af"], [r[c] for c in diff_cols]), return_dtype=pl.Boolean
+        ),
+        finding=pl.struct("d_af", "d_bm", "d_0", *diff_cols).map_elements(
+            lambda r: finding(r["d_af"], [r[c] for c in diff_cols], r["d_bm"], r["d_0"]),
+            return_dtype=pl.Boolean,
+        ),
     )
-    cols = ["class", "tau", "top20_minus_af", "se", "d_af", "d_bm", "d_vol", "coverage", "mean_auc",
-            *[f"d_af_{s}" for s in config.PART3_ROBUST.values()], *diff_cols, "finding"]  # fmt: skip
+    cols = ["class", "tau", "top20_minus_af", "se", "d_af", "d_bm", "d_vol", "d_0", "coverage", "mean_auc",
+            *[f"d_af_{s}" for s in config.PART3_ROBUST.values()], *diff_cols, "beats_af", "finding"]  # fmt: skip
     return out.select(cols)
 
 
@@ -248,6 +263,7 @@ def run_all(frames: dict, *, groups=None, features=None, times=None, first_test_
     summary = {
         "n_etfs": len(symbols), "n_cells": int(grid.height),
         "n_pass_full": int((grid["d_af"] > config.PART3_FINDING_D).sum()),
+        "n_beats_af": int(grid["beats_af"].sum()),
         "n_findings": int(found.height), "class_days_missing": class_days_missing,
         "findings": found.select("class", "tau", "top20_minus_af", "d_af", "diff_pre", "diff_post",
                                  "diff_nocovid", "d_af_pre", "d_af_post", "d_af_nocovid").to_dicts(),

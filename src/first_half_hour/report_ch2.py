@@ -73,10 +73,9 @@ TEXT = {
         "h1": "Chapter 2: can ML beat a volatility-only formula at predicting a further +0.4%? ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
         "warn": (
-            "Data window {start} to {end}. The judging window ({jlo} to {jhi}) is data the "
-            "owner has already seen: exploration, not a clean test. The volatility ratio z "
-            "was added to the features on the plan auditor's advice before any real-data result "
-            "was seen. Not yet fact-checked."
+            "Data window {start} to {end}. The judging window ({jlo} to {jhi}) had already been "
+            "examined earlier in this study: exploration, not a clean test. The volatility ratio z "
+            "was added to the features before any real-data result was seen."
         ),
         "count": "<p><b>{count_line}</b> (plus one model-registry run outside the parent run)</p>",
         "box": (
@@ -185,9 +184,9 @@ TEXT = {
         "h1": "第 2 章：機器學習能勝過只看波動率的公式、預測再漲 0.4% 嗎？（{kind}）",
         "synthetic": "合成資料（只是檢查流程，不是結果）",
         "warn": (
-            "資料期間 {start} 到 {end}。評斷期（{jlo} 到 {jhi}）的資料擁有者已經看過，所以這是"
-            "探索，不是乾淨的檢驗。公式的 z 值（價格要漲 0.4% 相對於波動的倍數）是在計畫審查員"
-            "建議下，於看到任何真實資料結果之前加入特徵的。尚未經過事實查核。"
+            "資料期間 {start} 到 {end}。評斷期（{jlo} 到 {jhi}）的資料在這項研究稍早已經分析過，所以這是"
+            "探索，不是乾淨的檢驗。公式的 z 值（價格要漲 0.4% 相對於波動的倍數）是"
+            "在看到任何真實資料結果之前加入特徵的。"
         ),
         "count": (
             "<p><b>{count_line}</b>（執行次數：本章在 MLflow 裡跑了幾次，含母執行；"

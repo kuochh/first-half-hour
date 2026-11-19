@@ -140,7 +140,7 @@ def _check_chapter2(out, printed):
         assert page.count("data:image/png;base64,") == 3 and '<p class="fn">¹' in page
         assert page.count('class="sub"') >= 4  # a sub-heading per economics rule
     assert "adds nothing beyond a one-line formula" in en or p["primary_pass"]
-    assert "auditor's advice before any real-data result" in html_lib.unescape(en)
+    assert "added to the features before any real-data result" in html_lib.unescape(en)
     assert _numeric_cells(en) == _numeric_cells(zh), "numbers differ between the languages"
     assert not [c for c in ANY_CELL.findall(zh) if CODE.search(c)], "code name in a Chinese table"
 

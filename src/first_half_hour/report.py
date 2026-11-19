@@ -302,8 +302,7 @@ TEXT = {
         "title": "Chapter 1: does the first half-hour predict the last?",
         "h1": "Chapter 1: does the first half-hour predict the last half-hour? ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
-        "warn": "Data window {start} to {end}; samples: {samples}.\n"
-        "Bootstrap reps: {reps}. Not yet fact-checked.",
+        "warn": "Data window {start} to {end}; samples: {samples}.\nBootstrap reps: {reps}.",
         "sample_to": "{name} {a} to {b}",
         "sample_join": "; ",
         "count": "<p><b>{count_line}</b></p>",
@@ -411,8 +410,7 @@ TEXT = {
         "title": "第 1 章：第一個半小時能預測最後半小時嗎？",
         "h1": "第 1 章：第一個半小時能預測最後半小時嗎？（{kind}）",
         "synthetic": "合成資料（只是檢查流程，不是結果）",
-        "warn": "資料期間 {start} 到 {end}；樣本：{samples}。\n"
-        "bootstrap 重抽次數：{reps}。尚未經過事實查核。",
+        "warn": "資料期間 {start} 到 {end}；樣本：{samples}。\nbootstrap 重抽次數：{reps}。",
         "sample_to": "{name}，{a} 至 {b}",
         "sample_join": "；",
         "count": "<p><b>{count_line}</b>（執行次數：本章 9 個項目共跑了幾次，含 MLflow 裡的子執行）</p>",

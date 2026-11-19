@@ -176,7 +176,8 @@ def plot_effect(effect: pl.DataFrame, path: Path) -> None:
 
 
 def plot_grid(grid: pl.DataFrame, path: Path) -> None:
-    """4 classes x 5 decision times: top-20% minus always-follow (bp) +/- 2 SE, findings starred."""
+    """4 classes x 5 decision times: top-20% minus always-follow (bp) +/- 2 SE; findings starred, cells that
+    beat always-follow only marked with an open diamond."""
     classes = list(config.PART3_CLASSES)
     taus = [t for t, _ in config.PART2_TIMES]
     assert grid.height == len(classes) * len(taus), f"grid has {grid.height} cells"
@@ -189,9 +190,13 @@ def plot_grid(grid: pl.DataFrame, path: Path) -> None:
         g = g.with_columns(pl.col("tau").replace_strict({t: i for i, t in enumerate(taus)}).alias("_i")).sort("_i")  # fmt: skip
         ax.errorbar(g["_i"].to_numpy(), g["top20_minus_af"].to_numpy() * 1e4,
                     yerr=2 * g["se"].to_numpy() * 1e4, fmt="o", capsize=3, color="C0")  # fmt: skip
+        only = g.filter(pl.col("beats_af") & ~pl.col("finding"))
+        ax.plot(only["_i"].to_numpy(), only["top20_minus_af"].to_numpy() * 1e4, "D", ms=9, mfc="none",
+                mec="C1", mew=1.5, label="beats always follow only")  # fmt: skip
         hit = g.filter(pl.col("finding"))
         ax.plot(hit["_i"].to_numpy(), hit["top20_minus_af"].to_numpy() * 1e4, "*", ms=16,
                 color="gold", mec="black", label="finding")  # fmt: skip
+        hit = g.filter(pl.col("beats_af"))
         ax.axhline(0, color="black", lw=0.8)
         ax.set_xticks(range(len(taus)), taus, fontsize=8)
         ax.set_xlabel("decision time")
@@ -221,7 +226,7 @@ TEXT = {
         "title": "Part 3: do the same signals work on other ETFs, and can a classifier pick the days?",
         "h1": "Part 3: other markets, four ETF classes ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
-        "warn": "Data window {start} to {end}. Not yet fact-checked.",
+        "warn": "Data window {start} to {end}.",
         "count": "<p><b>{count_line}</b></p>",
         "question": (
             "Two questions, asked on {n_etfs} ETFs grouped into four classes (US equity, international equity, "
@@ -232,14 +237,17 @@ TEXT = {
         ),
         "findings": (
             "{n_pass} of {n_cells} cells (class x decision time) have the top-{q}% days beating always "
-            "following by more than 2 paired standard errors. A cell counts as a finding only if, in "
-            "addition, the gain is positive in 2014 to 2020-05-01, in 2020-05-04 on, and over all test "
-            "days without 2020-02 to 2020-04: {n_find} are findings{which}. With {n_cells} cells, one or "
-            "two passing the first test by chance is expected.{extra}"
+            "following by more than 2 paired standard errors; {n_af} of them also keep a positive gain in "
+            "2014 to 2020-05-01, in 2020-05-04 on, and over all test days without 2020-02 to "
+            "2020-04{which_af}.{extra} With {n_cells} cells, one or two passing the first test by chance "
+            "is expected. A cell counts as a finding only if, in addition, the model beats the big-move "
+            "rule by more than 2 paired standard errors and its net per trade after {c} bp is above zero "
+            "by more than 2 standard errors (this rule was tightened after seeing the results): "
+            "{n_find} findings{which}."
         ),
         "extra": (
-            " Of the {n_find} findings, in {n_neg} the model's net per trade after {c} bp is still below "
-            "zero, and in {n_bm} the model beats the big-move rule by more than 2 paired standard errors."
+            " Of these {n_af}, in {n_neg} the model's net per trade after {c} bp is still below zero, and "
+            "in {n_bm} the model beats the big-move rule by more than 2 paired standard errors."
         ),
         "none": "",
         "fits": "Model fits behind this page: {n_fits}, for {n_etfs} ETFs.",
@@ -286,7 +294,7 @@ TEXT = {
         "limits": [
             "The close is the 15:59 bar for every ETF, including SPY in the US class; official-close SPY is shown beside it in section 2.",
             "The bond ETFs trade thinly in the {r13} window; the zero-return share in section 1 shows it. Costs may be higher for bonds and international ETFs than the {c} bp used here.",
-            "20 cells are tested: one or two passing the first test by chance is expected, which is why the finding rule also asks for a positive gain in three robustness splits.",
+            "20 cells are tested: one or two passing the first test by chance is expected, which is why the finding rule also asks for a positive gain in three robustness splits, a win over the big-move rule and a net payoff above zero.",
             "ETFs with late starts or gaps keep what they have (section 1); the class mean uses the ETFs present each day.",
             "Half-days are left out of the model tests (B) at every decision time.",
             "A session is kept only if the ETF traded in the 09:59, 14:59, 15:29 and 15:59 minutes. The later of these are known only after the 10:00, 12:00, 14:00 and 15:00 decisions (and 15:59 after 15:30), so at those times days that later turn out to have no trade in those minutes are missing from the sample. ETFs with the most sessions dropped for any reason (section 1): {drop}.",
@@ -304,7 +312,7 @@ TEXT = {
             "kept": "sessions kept", "dropped": "sessions dropped", "zero": "share of sessions with a zero {r13} return",
             "null": "share of sessions with no signal", "note": "note", "period": "period", "days": "days",
             "etfs": "ETFs", "tau": "decision time", "cell": "top-{q}% minus always follow (SE)",
-            "cov": "share of days traded", "auc": "AUC (0.5 = no skill)", "finding": "finding",
+            "cov": "share of days traded", "auc": "AUC (0.5 = no skill)", "finding": "finding", "beats_af": "beats always follow (earlier rule)",
             "net_model": "model net per trade (bp, ± 2 SE)", "net_af": "always follow net per trade (bp, ± 2 SE)",
             "rule": "rule", "trades": "trades", "mean": "net per trade (bp)", "sharpe": "Sharpe",
             "hit": "hit rate", "diff": "minus always follow (bp)", "verdict": "verdict",
@@ -321,7 +329,7 @@ TEXT = {
         "title": "第三部分：同樣的訊號在其他 ETF 也有效嗎？分類器能挑出日子嗎？",
         "h1": "第三部分：其他市場，四類 ETF（{kind}）",
         "synthetic": "合成資料（只檢查流程，不是結果）",
-        "warn": "資料期間 {start} 到 {end}。尚未查核。",
+        "warn": "資料期間 {start} 到 {end}。",
         "count": "<p><b>{count_line}</b></p>",
         "question": (
             "兩個問題，用分成四類的 {n_etfs} 檔 ETF（美國股票、海外股票、債券、黃金）來問。A：效應存在嗎？也就是 {r13} "
@@ -329,13 +337,14 @@ TEXT = {
             "比一律跟著訊號做更好嗎？每個數字都放在 0 旁邊：斜率 0 與報酬 0 是「沒有效應」的值。"
         ),
         "findings": (
-            "{n_cells} 個格子（類別 x 決策時間）中，有 {n_pass} 個格子的前 {q}% 日子比一律跟著做多出 2 個配對標準誤以上。"
-            "要算「發現」，還要在 2014 到 2020-05-01、2020-05-04 之後、以及拿掉 2020 年 2 到 4 月的全部測試日"
-            "三種版本中，差距都是正的：共 {n_find} 個{which}。有 {n_cells} 個格子時，"
-            "光靠運氣就有一兩個通過第一關是預期之內的。{extra}"
+            "{n_cells} 個格子（類別 x 決策時間）中，有 {n_pass} 個格子的前 {q}% 日子比一律跟著做多出 2 個配對標準誤以上；"
+            "其中 {n_af} 個在 2014 到 2020-05-01、2020-05-04 之後、以及拿掉 2020 年 2 到 4 月的全部測試日"
+            "三種版本中，差距也都是正的{which_af}。{extra}有 {n_cells} 個格子時，"
+            "光靠運氣就有一兩個通過第一關是預期之內的。要算「發現」，模型還必須比大幅移動規則多出 2 個配對標準誤以上，"
+            "而且扣除 {c} bp 後每筆淨報酬比 0 高出 2 個標準誤以上（這條規則是看到結果之後才收緊的）：共 {n_find} 個{which}。"
         ),
         "extra": (
-            "這 {n_find} 個發現中，有 {n_neg} 個的模型扣除 {c} bp 後每筆淨報酬仍小於 0，"
+            "這 {n_af} 個之中，有 {n_neg} 個的模型扣除 {c} bp 後每筆淨報酬仍小於 0，"
             "有 {n_bm} 個的模型比大幅移動規則多出 2 個配對標準誤以上。"
         ),
         "none": "",
@@ -376,7 +385,7 @@ TEXT = {
         "limits": [
             "所有 ETF 的收盤都用 15:59 分鐘棒，包括美國類中的 SPY；第 2 節旁邊列出用官方收盤價的 SPY。",
             "債券 ETF 在 {r13} 這段時間交易清淡，第 1 節的報酬為零比例顯示了這點。債券與海外 ETF 的成本可能比這裡用的 {c} bp 高。",
-            "共檢定 20 個格子：光靠運氣就有一兩個通過第一關是預期之內的，所以「發現」的規則還要求三種分期的差距都是正的。",
+            "共檢定 20 個格子：光靠運氣就有一兩個通過第一關是預期之內的，所以「發現」的規則還要求三種分期的差距都是正的、贏過大幅移動規則、而且扣除成本後淨報酬大於 0。",
             "較晚開始或有缺漏的 ETF 保留它有的資料（第 1 節）；類別平均用當天有資料的 ETF。",
             "模型檢定（B）在每個決策時間都排除提早收盤日。",
             "一個交易日要保留，該 ETF 在 09:59、14:59、15:29 與 15:59 這幾分鐘都必須有成交。較晚的幾分鐘要到 10:00、12:00、14:00、15:00 的決策之後才知道（15:59 則在 15:30 之後），所以在這些時間，事後發現沒有成交的日子不在樣本內。被排除交易日最多的 ETF（任何原因，見第 1 節）：{drop}。",
@@ -393,7 +402,7 @@ TEXT = {
             "kept": "保留的交易日", "dropped": "被排除的交易日", "zero": "{r13} 報酬為零的比例",
             "null": "訊號缺值比例", "note": "備註", "period": "期間", "days": "天數",
             "etfs": "ETF 數", "tau": "決策時間", "cell": "前 {q}% 減一律跟著做（SE）",
-            "cov": "交易日比例", "auc": "AUC（0.5＝沒有預測力）", "finding": "發現",
+            "cov": "交易日比例", "auc": "AUC（0.5＝沒有預測力）", "finding": "發現", "beats_af": "贏過一律跟著做（先前的規則）",
             "net_model": "模型每筆淨報酬（bp，± 2 SE）", "net_af": "一律跟著做每筆淨報酬（bp，± 2 SE）",
             "rule": "規則", "trades": "交易筆數", "mean": "每筆淨報酬（bp）", "sharpe": "Sharpe",
             "hit": "命中率", "diff": "減一律跟著做（bp）", "verdict": "判定",
@@ -513,10 +522,10 @@ def _grid_table(grid: pl.DataFrame, rules: pl.DataFrame, lang: str) -> str:
             _cls(r["class"], lang), r["tau"], f"{_bp(r['top20_minus_af'])} ({_bp(r['se'])})",
             _pm(m["mean_net"], m["se"]), _d(r["d_af"]), _d(r["d_bm"]), _d(r["d_vol"]), _d(r["d_af_pre"]), _d(r["d_af_post"]),
             _d(r["d_af_nocovid"]), _pct(r["coverage"]), f"{r['mean_auc']:.3f}",
-            _lab(YESNO, bool(r["finding"]), lang, "flag"),
+            _lab(YESNO, bool(r["beats_af"]), lang, "flag"), _lab(YESNO, bool(r["finding"]), lang, "flag"),
         ])  # fmt: skip
     head = [c["class"], c["tau"], c["cell"].format(q=_q(Q)), c["net_model"], c["d_af"], c["d_bm"], c["d_vol"],
-            c["d_pre"], c["d_post"], c["d_nocovid"], c["cov"], c["auc"], c["finding"]]  # fmt: skip
+            c["d_pre"], c["d_post"], c["d_nocovid"], c["cov"], c["auc"], c["beats_af"], c["finding"]]  # fmt: skip
     return _table(head, rows)
 
 
@@ -524,19 +533,35 @@ def _findings_text(grid: pl.DataFrame, rules: pl.DataFrame, s: dict, lang: str) 
     rows = _grid_rows(grid)
     n_pass = sum(r["d_af"] > config.PART3_FINDING_D for r in rows)
     found = [r for r in rows if r["finding"]]
+    af = [r for r in rows if r["beats_af"]]
     assert n_pass == s["n_pass_full"], f"grid passes {n_pass}, summary says {s['n_pass_full']}"
+    assert len(af) == s["n_beats_af"], f"grid beats-af {len(af)}, summary {s['n_beats_af']}"
+    assert all(r["beats_af"] for r in found), "a finding fails the earlier rule"
     assert len(found) == s["n_findings"], f"grid findings {len(found)}, summary {s['n_findings']}"
     assert all(r["d_af"] > config.PART3_FINDING_D for r in found), "a finding fails the d_af test"
     assert s["n_cells"] == len(rows), "summary and grid cell counts differ"
-    which = extra = ""
-    if found:
-        n_neg = sum(_model_net(rules, r["class"], r["tau"])["mean_net"] < 0 for r in found)
-        n_bm = sum(r["d_bm"] > config.PART3_FINDING_D for r in found)
-        extra = TEXT[lang]["extra"].format(n_find=len(found), n_neg=n_neg, n_bm=n_bm, c=C_MAIN)
-        names = "; ".join(f"{_cls(r['class'], lang)}, {r['tau']}" for r in found)
-        which = f" ({names})" if lang == "en" else f"（{names}）"
+
+    def names(cells):
+        if not cells:
+            return ""
+        s_ = "; ".join(f"{_cls(r['class'], lang)}, {r['tau']}" for r in cells)
+        return f" ({s_})" if lang == "en" else f"（{s_}）"
+
+    extra = ""
+    if af:
+        n_neg = sum(_model_net(rules, r["class"], r["tau"])["mean_net"] < 0 for r in af)
+        n_bm = sum(r["d_bm"] > config.PART3_FINDING_D for r in af)
+        extra = TEXT[lang]["extra"].format(n_af=len(af), n_neg=n_neg, n_bm=n_bm, c=C_MAIN)
     return TEXT[lang]["findings"].format(
-        n_pass=n_pass, n_cells=len(rows), q=_q(Q), n_find=len(found), which=which, extra=extra
+        n_pass=n_pass,
+        n_cells=len(rows),
+        q=_q(Q),
+        n_af=len(af),
+        which_af=names(af),
+        extra=extra,
+        c=C_MAIN,
+        n_find=len(found),
+        which=names(found),
     )
 
 

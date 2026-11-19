@@ -100,11 +100,17 @@ def test_pooling_matches_a_day_by_day_hand_computation():
 
 
 def test_finding_rule():
-    assert part3.finding(2.5, [0.1, 0.2, 0.3])
-    assert not part3.finding(2.0, [0.1, 0.2, 0.3])  # d_af strictly above 2
-    assert not part3.finding(3.0, [0.1, -0.2, 0.3])  # any robustness version negative fails
-    assert not part3.finding(3.0, [0.1, 0.0, 0.3])  # zero is not positive
-    assert not part3.finding(3.0, [0.1, None, 0.3])  # an unreported split fails
+    assert part3.beats_af(2.5, [0.1, 0.2, 0.3])
+    assert not part3.beats_af(2.0, [0.1, 0.2, 0.3])  # d_af strictly above 2
+    assert not part3.beats_af(3.0, [0.1, -0.2, 0.3])  # any robustness version negative fails
+    assert not part3.beats_af(3.0, [0.1, 0.0, 0.3])  # zero is not positive
+    assert not part3.beats_af(3.0, [0.1, None, 0.3])  # an unreported split fails
+    # a finding also beats the big-move rule and is above zero, each by more than 2 SE
+    assert part3.finding(2.5, [0.1, 0.2, 0.3], 2.1, 2.1)
+    assert not part3.finding(2.5, [0.1, 0.2, 0.3], 2.0, 3.0)
+    assert not part3.finding(2.5, [0.1, 0.2, 0.3], 3.0, 2.0)
+    assert not part3.finding(2.5, [0.1, 0.2, 0.3], None, 3.0)
+    assert not part3.finding(2.0, [0.1, 0.2, 0.3], 3.0, 3.0)
 
 
 def test_run_all_grid_counts_logging_and_worker_independence(tmp_path):
@@ -120,7 +126,8 @@ def test_run_all_grid_counts_logging_and_worker_independence(tmp_path):
     # the grid's d_af is the pooled model-minus-always-follow row; finding rule re-applied by hand
     for row in g.iter_rows(named=True):
         want = row["d_af"] > 2 and min(row["diff_pre"], row["diff_post"], row["diff_nocovid"]) > 0
-        assert row["finding"] == want
+        assert row["beats_af"] == want
+        assert row["finding"] == (want and row["d_bm"] > 2 and row["d_0"] > 2)
     # the one-ETF class equals that ETF's own rule numbers (always-follow = mean g - 2 bp, by polars)
     cc = f["CCC"].filter((pl.col("tau") == "15:30") & (pl.col("year") >= 2018))
     af = r.filter((pl.col("class") == "cls_b") & (pl.col("tau") == "15:30") & (pl.col("rule") == "always_follow")

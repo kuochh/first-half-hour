@@ -265,7 +265,7 @@ TEXT = {
         "title": "Part 2: can a per-day classifier pick the days when the signal predicts 15:30 to close?",
         "h1": "Part 2: following the signal from 15:30 to close, only on the days a model picks ({kind})",
         "synthetic": "SYNTHETIC data (a pipeline check, not a result)",
-        "warn": "Data window {start} to {end}. Test days 2014-01-02 to 2026-08-31 (half-days left out). Not yet fact-checked.",
+        "warn": "Data window {start} to {end}. Test days 2014-01-02 to 2026-08-31 (half-days left out).",
         "count": "<p><b>{count_line}</b></p>",
         "verdict": "Verdict at the headline cell (SPY, {tau}, {c} bp round trip, {model}): <b>{v}</b>.",
         "numbers": (
@@ -374,7 +374,7 @@ TEXT = {
         "title": "第二部分：逐日分類器能挑出訊號預測 15:30 到收盤的日子嗎？",
         "h1": "第二部分：只在模型挑出的日子，順著訊號做 15:30 到收盤（{kind}）",
         "synthetic": "合成資料（只檢查流程，不是結果）",
-        "warn": "資料期間 {start} 到 {end}。測試日 2014-01-02 到 2026-08-31（不含提早收盤日）。尚未查核。",
+        "warn": "資料期間 {start} 到 {end}。測試日 2014-01-02 到 2026-08-31（不含提早收盤日）。",
         "count": "<p><b>{count_line}</b></p>",
         "verdict": "主要格子（SPY、{tau}、來回成本 {c} bp、{model}）的判定：<b>{v}</b>。",
         "numbers": (
