@@ -329,3 +329,15 @@ PART2_MAIN_C_BP: int = 2
 PART2_HEADLINE_TAU: str = "15:30"
 PART2_SPLIT_MIN_DAYS: int = 30
 """A split with fewer test days is not reported (only matters on synthetic data)."""
+
+# Part 2 report (figures and report; P2-C)
+PART2_REPORT_HEADLINE: tuple[str, int] = ("15:30", 2)
+"""Headline cell of the Part 2 report: decision time and the y threshold / evaluation cost in bp."""
+PART2_REPORT_Q: float = 0.20
+"""Share of days the headline rule trades."""
+PART2_REPORT_TOP_FEATURES: int = 5
+"""Picked-day description: how many features (largest standardised difference) are listed."""
+PART2_FIGURES: tuple[str, ...] = (
+    "part2_quintiles", "part2_cumulative", "part2_times", "part2_grid",
+)  # fmt: skip
+"""File stems under `<out>/figures/`."""

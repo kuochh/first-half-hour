@@ -430,16 +430,22 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
             fc = fcs[key]
             r = _rule_rows(fc, None, by_tau[head_tau], key, boot, (config.PART2_MAIN_Q,),
                            (config.PART2_EVAL_COSTS[1],), ("all",))  # fmt: skip
-            r = r.filter(pl.col("rule") == "model").with_columns(step=pl.lit(fs))
+            added = _step_group(fs, order)
+            r = r.filter(pl.col("rule") == "model").with_columns(
+                step=pl.lit(added if fs == "vol_only" else f"+{added}"),
+                features_added=pl.lit(",".join(groups[added])),
+            )
             te = fc.filter(pl.col("kind") == "test")
             group_rows.append(
                 r.with_columns(
                     auc=pl.lit(float(roc_auc_score(te["y"].to_numpy(), te["p"].to_numpy()))),
                     d_af=pl.col("diff_vs_af") / pl.col("diff_vs_af_se"),
+                    top20_mean_net=pl.col("mean_net"),
                 )
             )
     groups_df = pl.concat(group_rows) if group_rows else pl.DataFrame(
-        schema={"step": pl.Utf8, "mean_net": pl.Float64, "d_af": pl.Float64}
+        schema={"step": pl.Utf8, "features_added": pl.Utf8, "auc": pl.Float64,
+                "top20_mean_net": pl.Float64, "se": pl.Float64, "d_af": pl.Float64}
     )  # fmt: skip
 
     forecasts = pl.concat(list(fcs.values()))
@@ -472,6 +478,15 @@ def run_all(frame, *, groups=None, features=None, times=None, first_test_year=No
         "groups": groups_df, "picked": picked, "per_year": per_year, "cumulative": cumulative,
         "val": val, "summary": summary,
     }  # fmt: skip
+
+
+def _step_group(fs: str, order: list[str]) -> str:
+    """The group a feature-set step adds: vol_only -> volatility, a+b+c -> c, all -> the last."""
+    if fs == "vol_only":
+        return order[0]
+    if fs == "all":
+        return order[-1]
+    return fs.split("+")[-1]
 
 
 def _group_steps(groups, head_model) -> list[str]:
